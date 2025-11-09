@@ -43,6 +43,7 @@ import chatty.gui.colors.ColorItem;
 import chatty.gui.colors.MsgColorItem;
 import chatty.gui.colors.MsgColorManager;
 import chatty.gui.components.AddressbookDialog;
+import chatty.gui.components.AutoReplyStatusIndicator;
 import chatty.gui.components.AutoModDialog;
 import chatty.gui.components.EmotesDialog;
 import chatty.gui.components.ErrorMessage;
@@ -183,6 +184,7 @@ public class MainGui extends JFrame implements Runnable {
     private final Highlighter filter = new Highlighter("filter");
     public final RepeatMsgHelper repeatMsg;
     private final AutoReplyManager autoReplyManager;
+    private final Set<AutoReplyStatusIndicator> autoReplyIndicators = Collections.newSetFromMap(new WeakHashMap<>());
     private final MsgColorManager msgColorManager;
     private StyleManager styleManager;
     private TrayIconManager trayIcon;
@@ -207,6 +209,7 @@ public class MainGui extends JFrame implements Runnable {
         localEmotes = new LocalEmotesSetting(client.settings, this);
         repeatMsg = new RepeatMsgHelper(client.settings);
         autoReplyManager = new AutoReplyManager(client.settings);
+        autoReplyManager.addListener(config -> updateAutoReplyIndicators(config));
         SwingUtilities.invokeLater(this);
     }
     
@@ -398,6 +401,30 @@ public class MainGui extends JFrame implements Runnable {
     public void getSettingsDialog(Consumer<SettingsDialog> action) {
         GuiUtil.edt(() -> {
             SettingsDialog.get(this, action);
+        });
+    }
+
+    public void configureAutoReplyIndicator(AutoReplyStatusIndicator indicator) {
+        GuiUtil.edt(() -> {
+            indicator.setToggleHandler(enabled -> {
+                AutoReplyManager.AutoReplyConfig config = autoReplyManager.getConfig();
+                if (config.isEnabled() != enabled) {
+                    config.setEnabled(enabled);
+                    autoReplyManager.applyConfig(config);
+                }
+            });
+            indicator.setOpenSettingsHandler(() ->
+                    getSettingsDialog(dialog -> dialog.showSettings("showAutoReply", null)));
+            indicator.refresh(autoReplyManager.getConfig());
+            autoReplyIndicators.add(indicator);
+        });
+    }
+
+    private void updateAutoReplyIndicators(AutoReplyManager.AutoReplyConfig config) {
+        GuiUtil.edt(() -> {
+            for (AutoReplyStatusIndicator indicator : autoReplyIndicators) {
+                indicator.refresh(config);
+            }
         });
     }
     

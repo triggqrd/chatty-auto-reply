@@ -16,11 +16,10 @@ import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
-import java.util.stream.Collectors;
+import javax.swing.BoxLayout;
+import javax.swing.BorderFactory;
 import javax.swing.DefaultComboBoxModel;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.DefaultListModel;
@@ -37,6 +36,7 @@ import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.ListSelectionModel;
 import javax.swing.SpinnerNumberModel;
+import javax.swing.border.EmptyBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.event.ListSelectionListener;
@@ -53,30 +53,14 @@ public class AutoReplySettings extends SettingsPanel {
     private final DefaultListModel<AutoReplyProfile> profileModel = new DefaultListModel<>();
     private final JList<AutoReplyProfile> profileList = new JList<>(profileModel);
 
-    private final DefaultListModel<AutoReplyTrigger> triggerModel = new DefaultListModel<>();
-    private final JList<AutoReplyTrigger> triggerList = new JList<>(triggerModel);
-
     private final JComboBox<ActiveProfileItem> activeProfileCombo = new JComboBox<>();
     private final JSpinner globalCooldownSpinner = new JSpinner(new SpinnerNumberModel(0L, 0L, Long.MAX_VALUE, 1L));
     private final JCheckBox selfIgnoreCheck = new JCheckBox(Language.getString("settings.autoReply.selfIgnore"));
     private final JCheckBox defaultNotificationCheck = new JCheckBox(Language.getString("settings.autoReply.defaultNotification"));
     private final JComboBox<String> defaultSoundCombo = new JComboBox<>(new String[]{"", "off", "ding.wav"});
-
-    private final JTextField patternField = new JTextField();
-    private final JComboBox<PatternType> patternTypeCombo = new JComboBox<>(PatternType.values());
-    private final JTextArea replyArea = new JTextArea(4, 30);
-    private final JSpinner triggerCooldownSpinner = new JSpinner(new SpinnerNumberModel(0L, 0L, Long.MAX_VALUE, 1L));
-    private final JTextArea overridesArea = new JTextArea(4, 30);
-    private final JTextArea allowArea = new JTextArea(3, 20);
-    private final JTextArea blockArea = new JTextArea(3, 20);
-    private final JSpinner triggerMinUniqueUsersSpinner = new JSpinner(new SpinnerNumberModel(0L, 0L, Long.MAX_VALUE, 1L));
-    private final JSpinner triggerMinMentionsPerUserSpinner = new JSpinner(new SpinnerNumberModel(0L, 0L, Long.MAX_VALUE, 1L));
-    private final JSpinner triggerTimeWindowSpinner = new JSpinner(new SpinnerNumberModel(0L, 0L, Long.MAX_VALUE, 1L));
-    private final JCheckBox triggerNotificationCheck = new JCheckBox(Language.getString("settings.autoReply.trigger.notify"));
-    private final JComboBox<String> triggerSoundCombo = new JComboBox<>(new String[]{"", "off", "ding.wav"});
+    private final JPanel triggerEditorsPanel = new JPanel();
+    private final List<TriggerEditorPanel> triggerEditors = new ArrayList<>();
     private final JLabel validationLabel = new JLabel();
-
-    private boolean updatingTriggerForm;
 
     public AutoReplySettings(SettingsDialog dialog) {
         super(true);
@@ -84,7 +68,6 @@ public class AutoReplySettings extends SettingsPanel {
         buildUi();
         installListeners();
         updateActiveProfileCombo();
-        setTriggerFormEnabled(false);
         validationLabel.setForeground(Color.GRAY);
         validationLabel.setText(Language.getString("settings.autoReply.triggers.help"));
     }
@@ -219,19 +202,18 @@ public class AutoReplySettings extends SettingsPanel {
         JPanel panel = createTitledPanel(Language.getString("settings.section.autoReplyTriggers"));
         panel.setLayout(new GridBagLayout());
 
-        triggerList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        triggerList.setCellRenderer(new TriggerRenderer());
-        triggerList.setVisibleRowCount(10);
-        JScrollPane triggerScroll = new JScrollPane(triggerList);
-        triggerScroll.setPreferredSize(new Dimension(300, 200));
+        triggerEditorsPanel.setLayout(new BoxLayout(triggerEditorsPanel, BoxLayout.Y_AXIS));
+        triggerEditorsPanel.setOpaque(false);
+        JScrollPane triggerScroll = new JScrollPane(triggerEditorsPanel);
+        triggerScroll.setPreferredSize(new Dimension(360, 260));
+        triggerScroll.getVerticalScrollBar().setUnitIncrement(18);
 
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.gridx = 0;
         gbc.gridy = 0;
-        gbc.gridwidth = 2;
-        gbc.fill = GridBagConstraints.BOTH;
         gbc.weightx = 1;
-        gbc.weighty = 0.5;
+        gbc.weighty = 1;
+        gbc.fill = GridBagConstraints.BOTH;
         panel.add(triggerScroll, gbc);
 
         JPanel buttons = new JPanel();
@@ -240,193 +222,30 @@ public class AutoReplySettings extends SettingsPanel {
         add.addActionListener(e -> addTrigger());
         buttons.add(add);
 
-        JButton duplicate = new JButton(Language.getString("settings.autoReply.triggers.duplicate"));
-        GuiUtil.smallButtonInsets(duplicate);
-        duplicate.addActionListener(e -> duplicateTrigger());
-        buttons.add(duplicate);
-
-        JButton delete = new JButton(Language.getString("settings.autoReply.triggers.delete"));
-        GuiUtil.smallButtonInsets(delete);
-        delete.addActionListener(e -> deleteTrigger());
-        buttons.add(delete);
-
-        gbc.gridy = 1;
-        gbc.gridwidth = 2;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.gridy++;
         gbc.weighty = 0;
+        gbc.insets = new Insets(8, 0, 0, 0);
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.anchor = GridBagConstraints.WEST;
         panel.add(buttons, gbc);
 
-        JPanel form = new JPanel(new GridBagLayout());
-        Insets insets = new Insets(3, 3, 3, 3);
-        GridBagConstraints formGbc = new GridBagConstraints();
-        formGbc.insets = insets;
-        formGbc.gridx = 0;
-        formGbc.gridy = 0;
-        formGbc.anchor = GridBagConstraints.WEST;
-        form.add(new JLabel(Language.getString("settings.autoReply.trigger.patternType")), formGbc);
-
-        formGbc.gridx = 1;
-        formGbc.fill = GridBagConstraints.HORIZONTAL;
-        formGbc.weightx = 1;
-        patternTypeCombo.setRenderer(new PatternRenderer());
-        patternTypeCombo.setPrototypeDisplayValue(PatternType.REGEX);
-        form.add(patternTypeCombo, formGbc);
-
-        formGbc.gridy++;
-        formGbc.gridx = 0;
-        formGbc.fill = GridBagConstraints.NONE;
-        formGbc.weightx = 0;
-        form.add(new JLabel(Language.getString("settings.autoReply.trigger.pattern")), formGbc);
-
-        formGbc.gridx = 1;
-        formGbc.fill = GridBagConstraints.HORIZONTAL;
-        formGbc.weightx = 1;
-        form.add(patternField, formGbc);
-
-        formGbc.gridy++;
-        formGbc.gridx = 0;
-        formGbc.anchor = GridBagConstraints.NORTHWEST;
-        form.add(new JLabel(Language.getString("settings.autoReply.trigger.reply")), formGbc);
-
-        formGbc.gridx = 1;
-        formGbc.fill = GridBagConstraints.BOTH;
-        formGbc.weighty = 0.3;
-        replyArea.setLineWrap(true);
-        replyArea.setWrapStyleWord(true);
-        JScrollPane replyScroll = new JScrollPane(replyArea);
-        replyScroll.setPreferredSize(new Dimension(200, 80));
-        form.add(replyScroll, formGbc);
-
-        formGbc.gridy++;
-        formGbc.gridx = 0;
-        formGbc.weighty = 0;
-        formGbc.anchor = GridBagConstraints.WEST;
-        formGbc.fill = GridBagConstraints.NONE;
-        form.add(new JLabel(Language.getString("settings.autoReply.trigger.cooldown")), formGbc);
-
-        formGbc.gridx = 1;
-        formGbc.fill = GridBagConstraints.HORIZONTAL;
-        triggerCooldownSpinner.setPreferredSize(new Dimension(120, triggerCooldownSpinner.getPreferredSize().height));
-        form.add(triggerCooldownSpinner, formGbc);
-
-        formGbc.gridy++;
-        formGbc.gridx = 0;
-        JLabel minUsersLabel = new JLabel(Language.getString("settings.autoReply.trigger.minUniqueUsers"));
-        minUsersLabel.setToolTipText(Language.getString("settings.autoReply.trigger.minUniqueUsers.tip"));
-        form.add(minUsersLabel, formGbc);
-
-        formGbc.gridx = 1;
-        triggerMinUniqueUsersSpinner.setPreferredSize(new Dimension(120, triggerMinUniqueUsersSpinner.getPreferredSize().height));
-        form.add(triggerMinUniqueUsersSpinner, formGbc);
-
-        formGbc.gridy++;
-        formGbc.gridx = 0;
-        JLabel minMentionsLabel = new JLabel(Language.getString("settings.autoReply.trigger.minMentionsPerUser"));
-        minMentionsLabel.setToolTipText(Language.getString("settings.autoReply.trigger.minMentionsPerUser.tip"));
-        form.add(minMentionsLabel, formGbc);
-
-        formGbc.gridx = 1;
-        triggerMinMentionsPerUserSpinner.setPreferredSize(new Dimension(120, triggerMinMentionsPerUserSpinner.getPreferredSize().height));
-        form.add(triggerMinMentionsPerUserSpinner, formGbc);
-
-        formGbc.gridy++;
-        formGbc.gridx = 0;
-        JLabel timeWindowLabel = new JLabel(Language.getString("settings.autoReply.trigger.timeWindow"));
-        timeWindowLabel.setToolTipText(Language.getString("settings.autoReply.trigger.timeWindow.tip"));
-        form.add(timeWindowLabel, formGbc);
-
-        formGbc.gridx = 1;
-        triggerTimeWindowSpinner.setPreferredSize(new Dimension(120, triggerTimeWindowSpinner.getPreferredSize().height));
-        form.add(triggerTimeWindowSpinner, formGbc);
-
-        formGbc.gridy++;
-        formGbc.gridx = 0;
-        formGbc.anchor = GridBagConstraints.NORTHWEST;
-        JLabel overridesLabel = new JLabel(Language.getString("settings.autoReply.trigger.authorOverrides"));
-        overridesLabel.setToolTipText(Language.getString("settings.autoReply.trigger.authorOverrides.tip"));
-        form.add(overridesLabel, formGbc);
-
-        formGbc.gridx = 1;
-        formGbc.fill = GridBagConstraints.BOTH;
-        formGbc.weighty = 0.3;
-        overridesArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, overridesArea.getFont().getSize()));
-        JScrollPane overridesScroll = new JScrollPane(overridesArea);
-        overridesScroll.setPreferredSize(new Dimension(200, 70));
-        form.add(overridesScroll, formGbc);
-
-        formGbc.gridy++;
-        formGbc.gridx = 0;
-        form.add(new JLabel(Language.getString("settings.autoReply.trigger.allowList")), formGbc);
-
-        formGbc.gridx = 1;
-        formGbc.fill = GridBagConstraints.BOTH;
-        formGbc.weighty = 0.2;
-        JScrollPane allowScroll = new JScrollPane(allowArea);
-        form.add(allowScroll, formGbc);
-
-        formGbc.gridy++;
-        formGbc.gridx = 0;
-        form.add(new JLabel(Language.getString("settings.autoReply.trigger.blockList")), formGbc);
-
-        formGbc.gridx = 1;
-        JScrollPane blockScroll = new JScrollPane(blockArea);
-        form.add(blockScroll, formGbc);
-
-        formGbc.gridy++;
-        formGbc.gridx = 0;
-        formGbc.gridwidth = 2;
-        formGbc.anchor = GridBagConstraints.WEST;
-        formGbc.fill = GridBagConstraints.NONE;
-        triggerNotificationCheck.setToolTipText(Language.getString("settings.autoReply.trigger.notify.tip"));
-        form.add(triggerNotificationCheck, formGbc);
-
-        formGbc.gridy++;
-        formGbc.gridwidth = 1;
-        formGbc.gridx = 0;
-        form.add(new JLabel(Language.getString("settings.autoReply.trigger.sound")), formGbc);
-
-        formGbc.gridx = 1;
-        formGbc.fill = GridBagConstraints.HORIZONTAL;
-        triggerSoundCombo.setEditable(true);
-        triggerSoundCombo.setRenderer(new SoundRenderer());
-        form.add(triggerSoundCombo, formGbc);
-
-        formGbc.gridy++;
-        formGbc.gridx = 0;
-        formGbc.gridwidth = 2;
-        formGbc.fill = GridBagConstraints.HORIZONTAL;
-        form.add(validationLabel, formGbc);
-
-        gbc.gridy = 2;
-        gbc.gridx = 0;
-        gbc.gridwidth = 2;
-        gbc.fill = GridBagConstraints.BOTH;
-        gbc.weighty = 0.5;
-        panel.add(form, gbc);
+        gbc.gridy++;
+        gbc.insets = new Insets(4, 0, 0, 0);
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        validationLabel.setForeground(Color.GRAY);
+        panel.add(validationLabel, gbc);
 
         return panel;
     }
 
     private void installListeners() {
-        profileList.addListSelectionListener(profileSelectionListener());
-        triggerList.addListSelectionListener(triggerSelectionListener());
+        profileList.addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) {
+                showProfile(profileList.getSelectedValue());
+            }
+        });
 
-        patternField.getDocument().addDocumentListener(documentListener(this::updatePattern));
-        replyArea.getDocument().addDocumentListener(documentListener(this::updateReply));
-        overridesArea.getDocument().addDocumentListener(documentListener(this::updateOverrides));
-        allowArea.getDocument().addDocumentListener(documentListener(this::updateAllowList));
-        blockArea.getDocument().addDocumentListener(documentListener(this::updateBlockList));
-
-        patternTypeCombo.addActionListener(e -> updatePatternType());
-        triggerCooldownSpinner.addChangeListener(e -> updateTriggerCooldown());
-        triggerMinUniqueUsersSpinner.addChangeListener(e -> updateTriggerMinUniqueUsers());
-        triggerMinMentionsPerUserSpinner.addChangeListener(e -> updateTriggerMinMentionsPerUser());
-        triggerTimeWindowSpinner.addChangeListener(e -> updateTriggerTimeWindow());
-        triggerNotificationCheck.addActionListener(e -> updateTriggerNotification());
-        triggerSoundCombo.addActionListener(e -> updateTriggerSound());
         defaultSoundCombo.addActionListener(e -> updateDefaultSound());
-
-        installComboEditorListener(triggerSoundCombo, this::updateTriggerSound);
         installComboEditorListener(defaultSoundCombo, this::updateDefaultSound);
 
         globalCooldownSpinner.addChangeListener(e -> config.setGlobalCooldown(((Number) globalCooldownSpinner.getValue()).longValue()));
@@ -437,24 +256,9 @@ public class AutoReplySettings extends SettingsPanel {
             if (item != null) {
                 config.setActiveProfileId(item.id);
                 profileList.repaint();
+                refreshValidation();
             }
         });
-    }
-
-    private ListSelectionListener profileSelectionListener() {
-        return e -> {
-            if (!e.getValueIsAdjusting()) {
-                showProfile(profileList.getSelectedValue());
-            }
-        };
-    }
-
-    private ListSelectionListener triggerSelectionListener() {
-        return e -> {
-            if (!e.getValueIsAdjusting()) {
-                showTrigger(triggerList.getSelectedValue());
-            }
-        };
     }
 
     private void installComboEditorListener(JComboBox<String> combo, Runnable action) {
@@ -500,8 +304,7 @@ public class AutoReplySettings extends SettingsPanel {
             }
             profileList.setSelectedIndex(index);
         } else {
-            triggerModel.clear();
-            setTriggerFormEnabled(false);
+            showProfile(null);
         }
         updateActiveProfileCombo();
         globalCooldownSpinner.setValue(Long.valueOf(this.config.getGlobalCooldown()));
@@ -512,17 +315,6 @@ public class AutoReplySettings extends SettingsPanel {
     }
 
     public AutoReplyConfig getData() {
-        updatePattern();
-        updateReply();
-        updateOverrides();
-        updateAllowList();
-        updateBlockList();
-        updateTriggerCooldown();
-        updateTriggerMinUniqueUsers();
-        updateTriggerMinMentionsPerUser();
-        updateTriggerTimeWindow();
-        updateTriggerNotification();
-        updateTriggerSound();
         updateDefaultSound();
         config.setGlobalCooldown(((Number) globalCooldownSpinner.getValue()).longValue());
         config.setSelfIgnore(selfIgnoreCheck.isSelected());
@@ -594,8 +386,7 @@ public class AutoReplySettings extends SettingsPanel {
         if (!profileModel.isEmpty()) {
             profileList.setSelectedIndex(0);
         } else {
-            triggerModel.clear();
-            setTriggerFormEnabled(false);
+            showProfile(null);
         }
     }
 
@@ -608,216 +399,98 @@ public class AutoReplySettings extends SettingsPanel {
         trigger.setNotificationEnabled(config.isDefaultNotification());
         trigger.setSound(config.getDefaultSound());
         profile.addTrigger(trigger);
-        triggerModel.addElement(trigger);
-        triggerList.setSelectedValue(trigger, true);
+        addTriggerEditor(profile, trigger);
+        triggerEditorsPanel.revalidate();
+        triggerEditorsPanel.repaint();
+        refreshValidation();
     }
 
-    private void duplicateTrigger() {
-        AutoReplyTrigger trigger = triggerList.getSelectedValue();
-        AutoReplyProfile profile = profileList.getSelectedValue();
-        if (trigger == null || profile == null) {
-            return;
-        }
-        AutoReplyTrigger copy = trigger.copyWithNewId();
-        profile.addTrigger(copy);
-        triggerModel.addElement(copy);
-        triggerList.setSelectedValue(copy, true);
+    private void addTriggerEditor(AutoReplyProfile profile, AutoReplyTrigger trigger) {
+        TriggerEditorPanel editor = new TriggerEditorPanel(profile, trigger);
+        triggerEditors.add(editor);
+        triggerEditorsPanel.add(editor);
     }
 
-    private void deleteTrigger() {
-        AutoReplyTrigger trigger = triggerList.getSelectedValue();
-        AutoReplyProfile profile = profileList.getSelectedValue();
-        if (trigger == null || profile == null) {
-            return;
-        }
+    private void duplicateTrigger(TriggerEditorPanel editor) {
+        AutoReplyTrigger copy = editor.trigger.copyWithNewId();
+        editor.profile.addTrigger(copy);
+        addTriggerEditor(editor.profile, copy);
+        triggerEditorsPanel.revalidate();
+        triggerEditorsPanel.repaint();
+        refreshValidation();
+    }
+
+    private void removeTrigger(TriggerEditorPanel editor) {
+        String label = StringUtil.isNullOrEmpty(editor.trigger.getPattern())
+                ? Language.getString("settings.autoReply.trigger.unnamed")
+                : editor.trigger.getPattern();
         int result = JOptionPane.showConfirmDialog(dialog,
-                String.format(Language.getString("settings.autoReply.triggers.delete.confirm"),
-                        trigger.getPattern().isEmpty() ? Language.getString("settings.autoReply.trigger.unnamed") : trigger.getPattern()),
+                String.format(Language.getString("settings.autoReply.triggers.delete.confirm"), label),
                 Language.getString("settings.autoReply.triggers.delete"),
                 JOptionPane.OK_CANCEL_OPTION);
         if (result != JOptionPane.OK_OPTION) {
             return;
         }
-        int previousIndex = triggerList.getSelectedIndex();
-        profile.getTriggers().remove(trigger);
-        triggerModel.removeElement(trigger);
-        if (!triggerModel.isEmpty()) {
-            int newIndex = Math.min(triggerModel.size() - 1, Math.max(0, previousIndex));
-            triggerList.setSelectedIndex(newIndex);
-        } else {
-            clearTriggerForm();
-        }
+        editor.profile.getTriggers().remove(editor.trigger);
+        triggerEditors.remove(editor);
+        triggerEditorsPanel.remove(editor);
+        triggerEditorsPanel.revalidate();
+        triggerEditorsPanel.repaint();
+        refreshValidation();
     }
 
     private void showProfile(AutoReplyProfile profile) {
-        triggerModel.clear();
+        triggerEditors.clear();
+        triggerEditorsPanel.removeAll();
+        if (profile != null) {
+            for (AutoReplyTrigger trigger : profile.getTriggers()) {
+                addTriggerEditor(profile, trigger);
+            }
+        }
+        triggerEditorsPanel.revalidate();
+        triggerEditorsPanel.repaint();
+        refreshValidation();
+    }
+
+    private void refreshValidation() {
+        AutoReplyProfile profile = profileList.getSelectedValue();
         if (profile == null) {
-            clearTriggerForm();
+            validationLabel.setForeground(Color.GRAY);
+            validationLabel.setText(Language.getString("settings.autoReply.triggers.help"));
             return;
         }
         for (AutoReplyTrigger trigger : profile.getTriggers()) {
-            triggerModel.addElement(trigger);
+            String error = validateTrigger(trigger);
+            if (error != null) {
+                validationLabel.setForeground(Color.RED);
+                validationLabel.setText(error);
+                return;
+            }
         }
-        if (!triggerModel.isEmpty()) {
-            triggerList.setSelectedIndex(0);
-        } else {
-            clearTriggerForm();
-        }
-    }
-
-    private void showTrigger(AutoReplyTrigger trigger) {
-        updatingTriggerForm = true;
-        if (trigger == null) {
-            clearTriggerForm();
-            updatingTriggerForm = false;
-            return;
-        }
-        setTriggerFormEnabled(true);
-        patternField.setText(trigger.getPattern());
-        patternTypeCombo.setSelectedItem(trigger.getPatternType());
-        replyArea.setText(trigger.getReply());
-        triggerCooldownSpinner.setValue(Long.valueOf(trigger.getCooldown()));
-        triggerMinUniqueUsersSpinner.setValue(Long.valueOf(trigger.getMinUniqueUsers()));
-        triggerMinMentionsPerUserSpinner.setValue(Long.valueOf(trigger.getMinMentionsPerUser()));
-        triggerTimeWindowSpinner.setValue(Long.valueOf(trigger.getTimeWindowSec()));
-        overridesArea.setText(formatOverrides(trigger.getAuthorOverrides()));
-        allowArea.setText(formatList(trigger.getAllowAuthors()));
-        blockArea.setText(formatList(trigger.getBlockAuthors()));
-        triggerNotificationCheck.setSelected(trigger.isNotificationEnabled());
-        triggerSoundCombo.setSelectedItem(trigger.getSound() == null ? "" : trigger.getSound());
-        updatingTriggerForm = false;
-        updateValidationForTrigger(trigger);
-    }
-
-    private void clearTriggerForm() {
-        updatingTriggerForm = true;
-        patternField.setText("");
-        patternTypeCombo.setSelectedItem(PatternType.PLAIN);
-        replyArea.setText("");
-        triggerCooldownSpinner.setValue(0L);
-        triggerMinUniqueUsersSpinner.setValue(0L);
-        triggerMinMentionsPerUserSpinner.setValue(0L);
-        triggerTimeWindowSpinner.setValue(0L);
-        overridesArea.setText("");
-        allowArea.setText("");
-        blockArea.setText("");
-        triggerNotificationCheck.setSelected(false);
-        triggerSoundCombo.setSelectedItem("");
-        setTriggerFormEnabled(false);
-        updatingTriggerForm = false;
+        validationLabel.setForeground(Color.GRAY);
         validationLabel.setText(Language.getString("settings.autoReply.triggers.help"));
     }
 
-    private void setTriggerFormEnabled(boolean enabled) {
-        patternField.setEnabled(enabled);
-        patternTypeCombo.setEnabled(enabled);
-        replyArea.setEnabled(enabled);
-        triggerCooldownSpinner.setEnabled(enabled);
-        triggerMinUniqueUsersSpinner.setEnabled(enabled);
-        triggerMinMentionsPerUserSpinner.setEnabled(enabled);
-        triggerTimeWindowSpinner.setEnabled(enabled);
-        overridesArea.setEnabled(enabled);
-        allowArea.setEnabled(enabled);
-        blockArea.setEnabled(enabled);
-        triggerNotificationCheck.setEnabled(enabled);
-        triggerSoundCombo.setEnabled(enabled);
-    }
-
-    private void updatePattern() {
-        if (updatingTriggerForm) {
-            return;
+    private String validateTrigger(AutoReplyTrigger trigger) {
+        if (trigger == null || !trigger.isEnabled()) {
+            return null;
         }
-        AutoReplyTrigger trigger = triggerList.getSelectedValue();
-        if (trigger != null) {
-            trigger.setPattern(patternField.getText().trim());
-            triggerList.repaint();
-            updateValidationForTrigger(trigger);
+        if (StringUtil.isNullOrEmpty(trigger.getPattern())) {
+            return Language.getString("settings.autoReply.validation.pattern");
         }
-    }
-
-    private void updatePatternType() {
-        if (updatingTriggerForm) {
-            return;
+        if (StringUtil.isNullOrEmpty(trigger.getReply())) {
+            return Language.getString("settings.autoReply.validation.reply");
         }
-        AutoReplyTrigger trigger = triggerList.getSelectedValue();
-        if (trigger != null) {
-            trigger.setPatternType((PatternType) patternTypeCombo.getSelectedItem());
-            triggerList.repaint();
+        if (trigger.getMaxDelayMillis() < trigger.getMinDelayMillis()) {
+            return Language.getString("settings.autoReply.validation.delay");
         }
-    }
-
-    private void updateReply() {
-        if (updatingTriggerForm) {
-            return;
+        long minUsers = trigger.getMinUniqueUsers();
+        long minMentions = trigger.getMinMentionsPerUser();
+        long window = trigger.getTimeWindowSec();
+        if ((minUsers > 0 || minMentions > 0) && window == 0) {
+            return Language.getString("settings.autoReply.validation.thresholds");
         }
-        AutoReplyTrigger trigger = triggerList.getSelectedValue();
-        if (trigger != null) {
-            trigger.setReply(replyArea.getText());
-        }
-    }
-
-    private void updateTriggerCooldown() {
-        if (updatingTriggerForm) {
-            return;
-        }
-        AutoReplyTrigger trigger = triggerList.getSelectedValue();
-        if (trigger != null) {
-            trigger.setCooldown(((Number) triggerCooldownSpinner.getValue()).longValue());
-        }
-    }
-
-    private void updateTriggerMinUniqueUsers() {
-        if (updatingTriggerForm) {
-            return;
-        }
-        AutoReplyTrigger trigger = triggerList.getSelectedValue();
-        if (trigger != null) {
-            trigger.setMinUniqueUsers(((Number) triggerMinUniqueUsersSpinner.getValue()).longValue());
-            updateValidationForTrigger(trigger);
-        }
-    }
-
-    private void updateTriggerMinMentionsPerUser() {
-        if (updatingTriggerForm) {
-            return;
-        }
-        AutoReplyTrigger trigger = triggerList.getSelectedValue();
-        if (trigger != null) {
-            trigger.setMinMentionsPerUser(((Number) triggerMinMentionsPerUserSpinner.getValue()).longValue());
-            updateValidationForTrigger(trigger);
-        }
-    }
-
-    private void updateTriggerTimeWindow() {
-        if (updatingTriggerForm) {
-            return;
-        }
-        AutoReplyTrigger trigger = triggerList.getSelectedValue();
-        if (trigger != null) {
-            trigger.setTimeWindowSec(((Number) triggerTimeWindowSpinner.getValue()).longValue());
-            updateValidationForTrigger(trigger);
-        }
-    }
-
-    private void updateTriggerNotification() {
-        if (updatingTriggerForm) {
-            return;
-        }
-        AutoReplyTrigger trigger = triggerList.getSelectedValue();
-        if (trigger != null) {
-            trigger.setNotificationEnabled(triggerNotificationCheck.isSelected());
-        }
-    }
-
-    private void updateTriggerSound() {
-        if (updatingTriggerForm) {
-            return;
-        }
-        AutoReplyTrigger trigger = triggerList.getSelectedValue();
-        if (trigger != null) {
-            String value = getComboValue(triggerSoundCombo);
-            trigger.setSound(StringUtil.isNullOrEmpty(value) ? null : value);
-        }
+        return null;
     }
 
     private void updateDefaultSound() {
@@ -826,119 +499,6 @@ public class AutoReplySettings extends SettingsPanel {
         }
         String value = getComboValue(defaultSoundCombo);
         config.setDefaultSound(StringUtil.isNullOrEmpty(value) ? null : value);
-    }
-
-    private void updateOverrides() {
-        if (updatingTriggerForm) {
-            return;
-        }
-        AutoReplyTrigger trigger = triggerList.getSelectedValue();
-        if (trigger == null) {
-            return;
-        }
-        String text = overridesArea.getText();
-        Map<String, String> overrides = new LinkedHashMap<>();
-        boolean valid = true;
-        if (!StringUtil.isNullOrEmpty(text)) {
-            for (String line : StringUtil.splitLines(text)) {
-                String trimmed = line.trim();
-                if (trimmed.isEmpty()) {
-                    continue;
-                }
-                int index = trimmed.indexOf('=');
-                if (index <= 0) {
-                    valid = false;
-                    continue;
-                }
-                String key = trimmed.substring(0, index).trim();
-                String value = trimmed.substring(index + 1).trim();
-                if (key.isEmpty()) {
-                    valid = false;
-                    continue;
-                }
-                overrides.put(key, value);
-            }
-        }
-        if (valid) {
-            trigger.setAuthorOverrides(overrides);
-            updateValidationForTrigger(trigger);
-        } else {
-            validationLabel.setText(Language.getString("settings.autoReply.validation.overrideFormat"));
-        }
-    }
-
-    private void updateAllowList() {
-        if (updatingTriggerForm) {
-            return;
-        }
-        AutoReplyTrigger trigger = triggerList.getSelectedValue();
-        if (trigger != null) {
-            trigger.setAllowAuthors(parseList(allowArea.getText()));
-        }
-    }
-
-    private void updateBlockList() {
-        if (updatingTriggerForm) {
-            return;
-        }
-        AutoReplyTrigger trigger = triggerList.getSelectedValue();
-        if (trigger != null) {
-            trigger.setBlockAuthors(parseList(blockArea.getText()));
-        }
-    }
-
-    private List<String> parseList(String input) {
-        List<String> result = new ArrayList<>();
-        if (StringUtil.isNullOrEmpty(input)) {
-            return result;
-        }
-        String replaced = input.replace('\n', ',');
-        for (String part : replaced.split(",")) {
-            String trimmed = part.trim();
-            if (!trimmed.isEmpty()) {
-                result.add(trimmed);
-            }
-        }
-        return result;
-    }
-
-    private String formatOverrides(Map<String, String> overrides) {
-        if (overrides == null || overrides.isEmpty()) {
-            return "";
-        }
-        return overrides.entrySet().stream()
-                .map(entry -> entry.getKey() + "=" + entry.getValue())
-                .collect(Collectors.joining("\n"));
-    }
-
-    private String formatList(List<String> list) {
-        if (list == null || list.isEmpty()) {
-            return "";
-        }
-        return String.join("\n", list);
-    }
-
-    private void updateValidationForTrigger(AutoReplyTrigger trigger) {
-        if (trigger == null) {
-            validationLabel.setText(Language.getString("settings.autoReply.triggers.help"));
-            return;
-        }
-        if (StringUtil.isNullOrEmpty(trigger.getPattern())) {
-            validationLabel.setText(Language.getString("settings.autoReply.validation.pattern"));
-            return;
-        }
-        long minUsers = trigger.getMinUniqueUsers();
-        long minMentions = trigger.getMinMentionsPerUser();
-        long window = trigger.getTimeWindowSec();
-        if (minUsers < 0 || minMentions < 0 || window < 0) {
-            validationLabel.setText(Language.getString("settings.autoReply.validation.thresholds"));
-            return;
-        }
-        if ((minUsers > 0 || minMentions > 0) && window == 0) {
-            validationLabel.setText(Language.getString("settings.autoReply.validation.thresholds"));
-            return;
-        }
-        validationLabel.setText(Language.getString("settings.autoReply.triggers.help"));
     }
 
     private void updateActiveProfileCombo() {
@@ -1038,20 +598,229 @@ public class AutoReplySettings extends SettingsPanel {
         }
     }
 
-    private class TriggerRenderer extends DefaultListCellRenderer {
+    private class TriggerEditorPanel extends JPanel {
 
-        @Override
-        public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
-            String label = "";
-            if (value instanceof AutoReplyTrigger) {
-                AutoReplyTrigger trigger = (AutoReplyTrigger) value;
-                String pattern = trigger.getPattern();
-                if (StringUtil.isNullOrEmpty(pattern)) {
-                    pattern = Language.getString("settings.autoReply.trigger.unnamed");
+        private final AutoReplyProfile profile;
+        private final AutoReplyTrigger trigger;
+        private final JTextField patternField;
+        private final JTextArea repliesArea;
+        private final JTextField allowField;
+        private final JSpinner minDelaySpinner;
+        private final JSpinner maxDelaySpinner;
+        private final JSpinner cooldownSpinner;
+        private final JSpinner minUsersSpinner;
+        private final JSpinner minMentionsSpinner;
+        private final JSpinner timeWindowSpinner;
+        private final JComboBox<String> soundCombo;
+        private final JCheckBox enabledCheck;
+        private final JCheckBox notifyCheck;
+
+        TriggerEditorPanel(AutoReplyProfile profile, AutoReplyTrigger trigger) {
+            this.profile = profile;
+            this.trigger = trigger;
+
+            setLayout(new GridBagLayout());
+            setAlignmentX(Component.LEFT_ALIGNMENT);
+            setOpaque(false);
+            setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(70, 70, 70)),
+                    new EmptyBorder(8, 8, 8, 8)));
+
+            GridBagConstraints gbc = new GridBagConstraints();
+            gbc.insets = new Insets(2, 2, 2, 2);
+            gbc.anchor = GridBagConstraints.WEST;
+
+            enabledCheck = new JCheckBox(Language.getString("settings.autoReply.trigger.enabledToggle"));
+            enabledCheck.setSelected(trigger.isEnabled());
+            enabledCheck.addActionListener(e -> {
+                trigger.setEnabled(enabledCheck.isSelected());
+                refreshValidation();
+            });
+            gbc.gridx = 0;
+            gbc.gridy = 0;
+            add(enabledCheck, gbc);
+
+            JComboBox<PatternType> patternTypeCombo = new JComboBox<>(PatternType.values());
+            patternTypeCombo.setRenderer(new PatternRenderer());
+            patternTypeCombo.setSelectedItem(trigger.getPatternType());
+            patternTypeCombo.addActionListener(e -> trigger.setPatternType((PatternType) patternTypeCombo.getSelectedItem()));
+            gbc.gridx = 1;
+            add(patternTypeCombo, gbc);
+
+            patternField = new JTextField(trigger.getPattern());
+            patternField.getDocument().addDocumentListener(documentListener(() -> {
+                trigger.setPattern(patternField.getText().trim());
+                refreshValidation();
+            }));
+            gbc.gridx = 2;
+            gbc.weightx = 1;
+            gbc.fill = GridBagConstraints.HORIZONTAL;
+            add(patternField, gbc);
+
+            JButton duplicateButton = new JButton(Language.getString("settings.autoReply.triggers.duplicate"));
+            GuiUtil.smallButtonInsets(duplicateButton);
+            duplicateButton.addActionListener(e -> duplicateTrigger(this));
+            gbc.gridx = 3;
+            gbc.weightx = 0;
+            gbc.fill = GridBagConstraints.NONE;
+            add(duplicateButton, gbc);
+
+            JButton deleteButton = new JButton(Language.getString("settings.autoReply.triggers.delete"));
+            GuiUtil.smallButtonInsets(deleteButton);
+            deleteButton.addActionListener(e -> removeTrigger(this));
+            gbc.gridx = 4;
+            add(deleteButton, gbc);
+
+            gbc.gridx = 0;
+            gbc.gridy = 1;
+            gbc.anchor = GridBagConstraints.NORTHWEST;
+            add(new JLabel(Language.getString("settings.autoReply.trigger.reply")), gbc);
+
+            repliesArea = new JTextArea(trigger.getReply(), 3, 20);
+            repliesArea.setLineWrap(true);
+            repliesArea.setWrapStyleWord(true);
+            repliesArea.getDocument().addDocumentListener(documentListener(() -> {
+                trigger.setReply(repliesArea.getText());
+                refreshValidation();
+            }));
+            JScrollPane repliesScroll = new JScrollPane(repliesArea);
+            repliesScroll.setPreferredSize(new Dimension(220, 70));
+            gbc.gridx = 1;
+            gbc.gridwidth = 4;
+            gbc.weightx = 1;
+            gbc.fill = GridBagConstraints.BOTH;
+            add(repliesScroll, gbc);
+
+            long minDelay = trigger.getMinDelayMillis();
+            long maxDelay = Math.max(trigger.getMaxDelayMillis(), minDelay);
+            SpinnerNumberModel minDelayModel = new SpinnerNumberModel(minDelay, 0L, 3600000L, 100L);
+            SpinnerNumberModel maxDelayModel = new SpinnerNumberModel(maxDelay, minDelay, 3600000L, 100L);
+            minDelaySpinner = new JSpinner(minDelayModel);
+            maxDelaySpinner = new JSpinner(maxDelayModel);
+            minDelaySpinner.addChangeListener(e -> {
+                long value = ((Number) minDelaySpinner.getValue()).longValue();
+                trigger.setMinDelayMillis(value);
+                maxDelayModel.setMinimum(value);
+                if (((Number) maxDelaySpinner.getValue()).longValue() < value) {
+                    maxDelaySpinner.setValue(value);
                 }
-                label = pattern + " (" + Language.getString(trigger.getPatternType().getLabelKey()) + ")";
+                refreshValidation();
+            });
+            maxDelaySpinner.addChangeListener(e -> {
+                long value = ((Number) maxDelaySpinner.getValue()).longValue();
+                trigger.setMaxDelayMillis(value);
+                refreshValidation();
+            });
+
+            cooldownSpinner = new JSpinner(new SpinnerNumberModel(trigger.getCooldown(), 0L, Long.MAX_VALUE, 1L));
+            cooldownSpinner.addChangeListener(e -> trigger.setCooldown(((Number) cooldownSpinner.getValue()).longValue()));
+
+            JPanel timingRow = new JPanel(new GridBagLayout());
+            timingRow.setOpaque(false);
+            addLabeledSpinner(timingRow, Language.getString("settings.autoReply.trigger.minDelay"), minDelaySpinner, 0);
+            addLabeledSpinner(timingRow, Language.getString("settings.autoReply.trigger.maxDelay"), maxDelaySpinner, 2);
+            addLabeledSpinner(timingRow, Language.getString("settings.autoReply.trigger.cooldown"), cooldownSpinner, 4);
+
+            gbc.gridy = 2;
+            gbc.gridx = 0;
+            gbc.gridwidth = 5;
+            gbc.weightx = 1;
+            gbc.weighty = 0;
+            gbc.fill = GridBagConstraints.HORIZONTAL;
+            add(timingRow, gbc);
+
+            minUsersSpinner = new JSpinner(new SpinnerNumberModel(trigger.getMinUniqueUsers(), 0L, Long.MAX_VALUE, 1L));
+            minUsersSpinner.addChangeListener(e -> {
+                trigger.setMinUniqueUsers(((Number) minUsersSpinner.getValue()).longValue());
+                refreshValidation();
+            });
+
+            minMentionsSpinner = new JSpinner(new SpinnerNumberModel(trigger.getMinMentionsPerUser(), 0L, Long.MAX_VALUE, 1L));
+            minMentionsSpinner.addChangeListener(e -> {
+                trigger.setMinMentionsPerUser(((Number) minMentionsSpinner.getValue()).longValue());
+                refreshValidation();
+            });
+
+            timeWindowSpinner = new JSpinner(new SpinnerNumberModel(trigger.getTimeWindowSec(), 0L, Long.MAX_VALUE, 1L));
+            timeWindowSpinner.addChangeListener(e -> {
+                trigger.setTimeWindowSec(((Number) timeWindowSpinner.getValue()).longValue());
+                refreshValidation();
+            });
+
+            JPanel thresholdRow = new JPanel(new GridBagLayout());
+            thresholdRow.setOpaque(false);
+            addLabeledSpinner(thresholdRow, Language.getString("settings.autoReply.trigger.minUniqueUsers"), minUsersSpinner, 0);
+            addLabeledSpinner(thresholdRow, Language.getString("settings.autoReply.trigger.minMentionsPerUser"), minMentionsSpinner, 2);
+            addLabeledSpinner(thresholdRow, Language.getString("settings.autoReply.trigger.timeWindow"), timeWindowSpinner, 4);
+
+            gbc.gridy = 3;
+            add(thresholdRow, gbc);
+
+            gbc.gridy = 4;
+            gbc.gridwidth = 1;
+            gbc.gridx = 0;
+            gbc.anchor = GridBagConstraints.WEST;
+            add(new JLabel(Language.getString("settings.autoReply.trigger.allowedAuthors")), gbc);
+
+            allowField = new JTextField(String.join(", ", trigger.getAllowAuthors()));
+            allowField.getDocument().addDocumentListener(documentListener(() -> trigger.setAllowAuthors(parseAllowList(allowField.getText()))));
+            gbc.gridx = 1;
+            gbc.gridwidth = 2;
+            gbc.weightx = 1;
+            gbc.fill = GridBagConstraints.HORIZONTAL;
+            add(allowField, gbc);
+
+            notifyCheck = new JCheckBox(Language.getString("settings.autoReply.trigger.notify"));
+            notifyCheck.setSelected(trigger.isNotificationEnabled());
+            notifyCheck.addActionListener(e -> trigger.setNotificationEnabled(notifyCheck.isSelected()));
+            gbc.gridx = 3;
+            gbc.gridwidth = 1;
+            gbc.weightx = 0;
+            gbc.fill = GridBagConstraints.NONE;
+            add(notifyCheck, gbc);
+
+            soundCombo = new JComboBox<>(new String[]{"", "off", "ding.wav"});
+            soundCombo.setEditable(true);
+            soundCombo.setRenderer(new SoundRenderer());
+            soundCombo.setSelectedItem(trigger.getSound() == null ? "" : trigger.getSound());
+            soundCombo.addActionListener(e -> updateSound());
+            installComboEditorListener(soundCombo, this::updateSound);
+            gbc.gridx = 4;
+            gbc.fill = GridBagConstraints.HORIZONTAL;
+            add(soundCombo, gbc);
+        }
+
+        private void addLabeledSpinner(JPanel panel, String label, JSpinner spinner, int gridx) {
+            GridBagConstraints gbc = new GridBagConstraints();
+            gbc.insets = new Insets(0, 2, 0, 2);
+            gbc.gridy = 0;
+            gbc.gridx = gridx;
+            gbc.anchor = GridBagConstraints.WEST;
+            panel.add(new JLabel(label), gbc);
+            gbc.gridx = gridx + 1;
+            gbc.fill = GridBagConstraints.HORIZONTAL;
+            spinner.setPreferredSize(new Dimension(110, spinner.getPreferredSize().height));
+            panel.add(spinner, gbc);
+        }
+
+        private void updateSound() {
+            String value = getComboValue(soundCombo);
+            trigger.setSound(StringUtil.isNullOrEmpty(value) ? null : value);
+        }
+
+        private List<String> parseAllowList(String text) {
+            List<String> result = new ArrayList<>();
+            if (StringUtil.isNullOrEmpty(text)) {
+                return result;
             }
-            return super.getListCellRendererComponent(list, label, index, isSelected, cellHasFocus);
+            String normalized = text.replace('\n', ',');
+            for (String part : normalized.split(",")) {
+                String trimmed = part.trim();
+                if (!trimmed.isEmpty()) {
+                    result.add(trimmed);
+                }
+            }
+            return result;
         }
     }
 

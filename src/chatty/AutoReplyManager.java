@@ -29,6 +29,7 @@ public class AutoReplyManager {
     public static final String SETTING_SELF_IGNORE = "autoReplySelfIgnore";
     public static final String SETTING_DEFAULT_SOUND = "autoReplyDefaultSound";
     public static final String SETTING_DEFAULT_NOTIFICATION = "autoReplyDefaultNotification";
+    public static final String SETTING_ENABLED = "autoReplyEnabled";
 
     private final Settings settings;
     private final Object lock = new Object();
@@ -61,7 +62,8 @@ public class AutoReplyManager {
                 || SETTING_GLOBAL_COOLDOWN.equalsIgnoreCase(setting)
                 || SETTING_SELF_IGNORE.equalsIgnoreCase(setting)
                 || SETTING_DEFAULT_SOUND.equalsIgnoreCase(setting)
-                || SETTING_DEFAULT_NOTIFICATION.equalsIgnoreCase(setting);
+                || SETTING_DEFAULT_NOTIFICATION.equalsIgnoreCase(setting)
+                || SETTING_ENABLED.equalsIgnoreCase(setting);
     }
 
     public void addListener(Listener listener) {
@@ -129,6 +131,7 @@ public class AutoReplyManager {
         config.defaultNotification = settings.getBoolean(SETTING_DEFAULT_NOTIFICATION);
         String defaultSound = settings.getString(SETTING_DEFAULT_SOUND);
         config.defaultSound = normalize(defaultSound);
+        config.enabled = settings.getBoolean(SETTING_ENABLED);
         return config;
     }
 
@@ -141,6 +144,7 @@ public class AutoReplyManager {
         settings.setBoolean(SETTING_SELF_IGNORE, config.selfIgnore);
         settings.setBoolean(SETTING_DEFAULT_NOTIFICATION, config.defaultNotification);
         settings.setString(SETTING_DEFAULT_SOUND, config.defaultSound == null ? "" : config.defaultSound);
+        settings.setBoolean(SETTING_ENABLED, config.enabled);
     }
 
     private static List<Object> toSettingsList(List<AutoReplyProfile> profiles) {
@@ -218,13 +222,15 @@ public class AutoReplyManager {
         long timeWindowSec = toLong(map.get("timeWindowSec"), 0);
         boolean notify = toBoolean(map.get("notify"), false);
         String sound = normalize(map.get("sound"));
-        Map<String, String> overrides = toStringMap(map.get("overrides"));
         Object allowData = map.containsKey("authors") ? map.get("authors") : map.get("allow");
         List<String> allow = toStringList(allowData);
-        List<String> block = toStringList(map.get("block"));
+        boolean enabled = toBoolean(map.get("enabled"), true);
+        long minDelayMs = toLong(map.get("minDelayMs"), 0);
+        long maxDelayMs = toLong(map.get("maxDelayMs"), Math.max(0, minDelayMs));
         return new AutoReplyTrigger(id, pattern, patternType, reply, cooldown,
-                overrides, allow, block, notify, sound,
-                minUniqueUsers, minMentionsPerUser, timeWindowSec);
+                allow, notify, sound,
+                minUniqueUsers, minMentionsPerUser, timeWindowSec,
+                enabled, minDelayMs, maxDelayMs);
     }
 
     private static String normalize(Object value) {
@@ -312,6 +318,7 @@ public class AutoReplyManager {
         private boolean selfIgnore = true;
         private boolean defaultNotification;
         private String defaultSound;
+        private boolean enabled = true;
 
         public AutoReplyConfig copy() {
             AutoReplyConfig copy = new AutoReplyConfig();
@@ -323,6 +330,7 @@ public class AutoReplyManager {
             copy.selfIgnore = selfIgnore;
             copy.defaultNotification = defaultNotification;
             copy.defaultSound = defaultSound;
+            copy.enabled = enabled;
             return copy;
         }
 
@@ -368,6 +376,14 @@ public class AutoReplyManager {
 
         public void setDefaultSound(String defaultSound) {
             this.defaultSound = normalize(defaultSound);
+        }
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
         }
     }
 
@@ -440,51 +456,57 @@ public class AutoReplyManager {
         private PatternType patternType;
         private String reply;
         private long cooldown;
-        private Map<String, String> authorOverrides;
         private List<String> allowAuthors;
-        private List<String> blockAuthors;
         private boolean notificationEnabled;
         private String sound;
         private long minUniqueUsers;
         private long minMentionsPerUser;
         private long timeWindowSec;
+        private boolean enabled;
+        private long minDelayMillis;
+        private long maxDelayMillis;
 
         public AutoReplyTrigger(String id, String pattern, PatternType patternType, String reply,
-                long cooldown, Map<String, String> authorOverrides,
-                List<String> allowAuthors, List<String> blockAuthors,
+                long cooldown,
+                List<String> allowAuthors,
                 boolean notificationEnabled, String sound,
-                long minUniqueUsers, long minMentionsPerUser, long timeWindowSec) {
+                long minUniqueUsers, long minMentionsPerUser, long timeWindowSec,
+                boolean enabled, long minDelayMillis, long maxDelayMillis) {
             this.id = Objects.requireNonNull(id);
             this.pattern = pattern == null ? "" : pattern;
             this.patternType = patternType == null ? PatternType.PLAIN : patternType;
             this.reply = reply == null ? "" : reply;
             this.cooldown = Math.max(0, cooldown);
-            this.authorOverrides = new LinkedHashMap<>(authorOverrides == null ? Collections.emptyMap() : authorOverrides);
             this.allowAuthors = new ArrayList<>(allowAuthors == null ? Collections.emptyList() : allowAuthors);
-            this.blockAuthors = new ArrayList<>(blockAuthors == null ? Collections.emptyList() : blockAuthors);
             this.notificationEnabled = notificationEnabled;
             this.sound = normalize(sound);
             this.minUniqueUsers = Math.max(0, minUniqueUsers);
             this.minMentionsPerUser = Math.max(0, minMentionsPerUser);
             this.timeWindowSec = Math.max(0, timeWindowSec);
+            this.enabled = enabled;
+            this.minDelayMillis = Math.max(0, minDelayMillis);
+            this.maxDelayMillis = Math.max(this.minDelayMillis, maxDelayMillis);
         }
 
         public static AutoReplyTrigger create() {
             return new AutoReplyTrigger(generateId(), "", PatternType.PLAIN, "", 0,
-                    new LinkedHashMap<>(), new ArrayList<>(), new ArrayList<>(), false, null,
-                    0, 0, 0);
+                    new ArrayList<>(), false, null,
+                    0, 0, 0,
+                    true, 0, 0);
         }
 
         public AutoReplyTrigger copy() {
             return new AutoReplyTrigger(id, pattern, patternType, reply, cooldown,
-                    authorOverrides, allowAuthors, blockAuthors, notificationEnabled, sound,
-                    minUniqueUsers, minMentionsPerUser, timeWindowSec);
+                    allowAuthors, notificationEnabled, sound,
+                    minUniqueUsers, minMentionsPerUser, timeWindowSec,
+                    enabled, minDelayMillis, maxDelayMillis);
         }
 
         public AutoReplyTrigger copyWithNewId() {
             return new AutoReplyTrigger(generateId(), pattern, patternType, reply, cooldown,
-                    authorOverrides, allowAuthors, blockAuthors, notificationEnabled, sound,
-                    minUniqueUsers, minMentionsPerUser, timeWindowSec);
+                    allowAuthors, notificationEnabled, sound,
+                    minUniqueUsers, minMentionsPerUser, timeWindowSec,
+                    enabled, minDelayMillis, maxDelayMillis);
         }
 
         public Map<String, Object> toMap() {
@@ -497,21 +519,17 @@ public class AutoReplyManager {
             result.put("minUniqueUsers", minUniqueUsers);
             result.put("minMentionsPerUser", minMentionsPerUser);
             result.put("timeWindowSec", timeWindowSec);
-            if (!authorOverrides.isEmpty()) {
-                result.put("overrides", new LinkedHashMap<>(authorOverrides));
-            }
             if (!allowAuthors.isEmpty()) {
                 List<String> authors = new ArrayList<>(allowAuthors);
-                result.put("allow", new ArrayList<>(authors));
                 result.put("authors", new ArrayList<>(authors));
-            }
-            if (!blockAuthors.isEmpty()) {
-                result.put("block", new ArrayList<>(blockAuthors));
             }
             result.put("notify", notificationEnabled);
             if (!StringUtil.isNullOrEmpty(sound)) {
                 result.put("sound", sound);
             }
+            result.put("enabled", enabled);
+            result.put("minDelayMs", minDelayMillis);
+            result.put("maxDelayMs", maxDelayMillis);
             return result;
         }
 
@@ -551,28 +569,12 @@ public class AutoReplyManager {
             this.cooldown = Math.max(0, cooldown);
         }
 
-        public Map<String, String> getAuthorOverrides() {
-            return authorOverrides;
-        }
-
-        public void setAuthorOverrides(Map<String, String> authorOverrides) {
-            this.authorOverrides = new LinkedHashMap<>(authorOverrides == null ? Collections.emptyMap() : authorOverrides);
-        }
-
         public List<String> getAllowAuthors() {
             return allowAuthors;
         }
 
         public void setAllowAuthors(List<String> allowAuthors) {
             this.allowAuthors = new ArrayList<>(allowAuthors == null ? Collections.emptyList() : allowAuthors);
-        }
-
-        public List<String> getBlockAuthors() {
-            return blockAuthors;
-        }
-
-        public void setBlockAuthors(List<String> blockAuthors) {
-            this.blockAuthors = new ArrayList<>(blockAuthors == null ? Collections.emptyList() : blockAuthors);
         }
 
         public boolean isNotificationEnabled() {
@@ -613,6 +615,33 @@ public class AutoReplyManager {
 
         public void setTimeWindowSec(long timeWindowSec) {
             this.timeWindowSec = Math.max(0, timeWindowSec);
+        }
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public long getMinDelayMillis() {
+            return minDelayMillis;
+        }
+
+        public void setMinDelayMillis(long minDelayMillis) {
+            this.minDelayMillis = Math.max(0, minDelayMillis);
+            if (this.maxDelayMillis < this.minDelayMillis) {
+                this.maxDelayMillis = this.minDelayMillis;
+            }
+        }
+
+        public long getMaxDelayMillis() {
+            return maxDelayMillis;
+        }
+
+        public void setMaxDelayMillis(long maxDelayMillis) {
+            this.maxDelayMillis = Math.max(this.minDelayMillis, maxDelayMillis);
         }
 
         @Override

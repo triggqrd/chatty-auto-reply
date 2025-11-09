@@ -5,6 +5,7 @@ import chatty.gui.transparency.TransparencyManager;
 import chatty.gui.laf.LaF;
 import chatty.util.colors.HtmlColors;
 import chatty.Addressbook;
+import chatty.AutoReplyEngine;
 import chatty.AutoReplyManager;
 import chatty.ChannelState;
 import chatty.gui.components.textpane.UserMessage;
@@ -183,6 +184,7 @@ public class MainGui extends JFrame implements Runnable {
     private final Highlighter filter = new Highlighter("filter");
     public final RepeatMsgHelper repeatMsg;
     private final AutoReplyManager autoReplyManager;
+    private AutoReplyEngine autoReplyEngine;
     private final MsgColorManager msgColorManager;
     private StyleManager styleManager;
     private TrayIconManager trayIcon;
@@ -275,6 +277,8 @@ public class MainGui extends JFrame implements Runnable {
         notificationWindowManager = new NotificationWindowManager<>(this);
         notificationWindowManager.setNotificationActionListener(new MyNotificationActionListener());
         notificationManager = new NotificationManager(this, client.settings, client.addressbook, client.channelFavorites);
+        autoReplyEngine = new AutoReplyEngine(client, autoReplyManager, notificationManager);
+        client.setAutoReplyEngine(autoReplyEngine);
 
         // Channels/Chat output
         styleManager = new StyleManager(client.settings);

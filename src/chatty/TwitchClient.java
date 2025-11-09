@@ -196,6 +196,7 @@ public class TwitchClient {
     public final HistoryManager historyManager;
     
     private final SendMessageManager sendMessageManager;
+    private AutoReplyEngine autoReplyEngine;
     
     /**
      * Holds the UserManager instance, which manages all the user objects.
@@ -1043,10 +1044,22 @@ public class TwitchClient {
             }
         }
     }
-    
+
+    public boolean sendAutoReply(String channel, String text) {
+        if (!c.onChannel(channel, true)) {
+            return false;
+        }
+        if (c.sendSpamProtectedMessage(channel, text, false)) {
+            User user = c.localUserJoined(channel);
+            g.printMessage(user, text, false, MsgTags.EMPTY);
+            return true;
+        }
+        return false;
+    }
+
     /**
      * Check if the message should be sent as a reply.
-     * 
+     *
      * @param channel The channel to send the message to (not null)
      * @param text The text to send (not null)
      * @return true if the message was handled by this method, false if it
@@ -3364,7 +3377,11 @@ public class TwitchClient {
         spamProtection.setLinesPerSeconds(value);
         c.setSpamProtection(value);
     }
-    
+
+    public void setAutoReplyEngine(AutoReplyEngine autoReplyEngine) {
+        this.autoReplyEngine = autoReplyEngine;
+    }
+
     /**
      * Exit the program. Do some cleanup first and save stuff to file (settings,
      * addressbook, chatlogs).
@@ -3380,6 +3397,9 @@ public class TwitchClient {
         c.disconnect();
         frankerFaceZ.disconnectWs();
         eventSub.disconnect();
+        if (autoReplyEngine != null) {
+            autoReplyEngine.shutdown();
+        }
         g.cleanUp();
         chatLog.close();
         System.exit(0);
@@ -3590,6 +3610,9 @@ public class TwitchClient {
                     modCommandAddStreamHighlight(user, text, tags);
                 }
                 historyManager.setMessageSeen(user.getStream());
+            }
+            if (autoReplyEngine != null) {
+                autoReplyEngine.onChatMessage(user, text, action, tags);
             }
         }
 

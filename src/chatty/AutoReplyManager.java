@@ -218,7 +218,10 @@ public class AutoReplyManager {
         Map<String, String> overrides = toStringMap(map.get("overrides"));
         List<String> allow = toStringList(map.get("allow"));
         List<String> block = toStringList(map.get("block"));
+        int minUniqueUsers = (int) toLong(map.get("minUniqueUsers"), 0);
+        int minMentionsPerUser = (int) toLong(map.get("minMentionsPerUser"), 0);
         return new AutoReplyTrigger(id, pattern, patternType, reply, cooldown,
+                minUniqueUsers, minMentionsPerUser,
                 overrides, allow, block, notify, sound);
     }
 
@@ -440,9 +443,12 @@ public class AutoReplyManager {
         private List<String> blockAuthors;
         private boolean notificationEnabled;
         private String sound;
+        private int minUniqueUsers;
+        private int minMentionsPerUser;
 
         public AutoReplyTrigger(String id, String pattern, PatternType patternType, String reply,
-                long cooldown, Map<String, String> authorOverrides,
+                long cooldown, int minUniqueUsers, int minMentionsPerUser,
+                Map<String, String> authorOverrides,
                 List<String> allowAuthors, List<String> blockAuthors,
                 boolean notificationEnabled, String sound) {
             this.id = Objects.requireNonNull(id);
@@ -450,6 +456,8 @@ public class AutoReplyManager {
             this.patternType = patternType == null ? PatternType.PLAIN : patternType;
             this.reply = reply == null ? "" : reply;
             this.cooldown = Math.max(0, cooldown);
+            this.minUniqueUsers = Math.max(0, minUniqueUsers);
+            this.minMentionsPerUser = Math.max(0, minMentionsPerUser);
             this.authorOverrides = new LinkedHashMap<>(authorOverrides == null ? Collections.emptyMap() : authorOverrides);
             this.allowAuthors = new ArrayList<>(allowAuthors == null ? Collections.emptyList() : allowAuthors);
             this.blockAuthors = new ArrayList<>(blockAuthors == null ? Collections.emptyList() : blockAuthors);
@@ -459,16 +467,19 @@ public class AutoReplyManager {
 
         public static AutoReplyTrigger create() {
             return new AutoReplyTrigger(generateId(), "", PatternType.PLAIN, "", 0,
+                    0, 0,
                     new LinkedHashMap<>(), new ArrayList<>(), new ArrayList<>(), false, null);
         }
 
         public AutoReplyTrigger copy() {
             return new AutoReplyTrigger(id, pattern, patternType, reply, cooldown,
+                    minUniqueUsers, minMentionsPerUser,
                     authorOverrides, allowAuthors, blockAuthors, notificationEnabled, sound);
         }
 
         public AutoReplyTrigger copyWithNewId() {
             return new AutoReplyTrigger(generateId(), pattern, patternType, reply, cooldown,
+                    minUniqueUsers, minMentionsPerUser,
                     authorOverrides, allowAuthors, blockAuthors, notificationEnabled, sound);
         }
 
@@ -479,6 +490,8 @@ public class AutoReplyManager {
             result.put("patternType", patternType.name());
             result.put("reply", reply);
             result.put("cooldown", cooldown);
+            result.put("minUniqueUsers", minUniqueUsers);
+            result.put("minMentionsPerUser", minMentionsPerUser);
             if (!authorOverrides.isEmpty()) {
                 result.put("overrides", new LinkedHashMap<>(authorOverrides));
             }
@@ -529,6 +542,22 @@ public class AutoReplyManager {
 
         public void setCooldown(long cooldown) {
             this.cooldown = Math.max(0, cooldown);
+        }
+
+        public int getMinUniqueUsers() {
+            return minUniqueUsers;
+        }
+
+        public void setMinUniqueUsers(int minUniqueUsers) {
+            this.minUniqueUsers = Math.max(0, minUniqueUsers);
+        }
+
+        public int getMinMentionsPerUser() {
+            return minMentionsPerUser;
+        }
+
+        public void setMinMentionsPerUser(int minMentionsPerUser) {
+            this.minMentionsPerUser = Math.max(0, minMentionsPerUser);
         }
 
         public Map<String, String> getAuthorOverrides() {

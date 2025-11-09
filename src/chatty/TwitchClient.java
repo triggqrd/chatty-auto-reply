@@ -196,6 +196,7 @@ public class TwitchClient {
     public final HistoryManager historyManager;
     
     private final SendMessageManager sendMessageManager;
+    private AutoReplyService autoReplyService;
     
     /**
      * Holds the UserManager instance, which manages all the user objects.
@@ -395,6 +396,7 @@ public class TwitchClient {
         
         autoModCommandHelper = new AutoModCommandHelper(g, api);
         sendMessageManager = new SendMessageManager(api, g);
+        autoReplyService = new AutoReplyService(this, g, g.getAutoReplyManager());
         
         timerCommand = new TimerCommand(settings, new TimerCommand.TimerAction() {
             @Override
@@ -995,6 +997,10 @@ public class TwitchClient {
         if (c.onChannel(channel, true)) {
             sendMessage(channel, text, false);
         }
+    }
+
+    boolean sendAutoReplyMessage(String channel, String text) {
+        return c.sendSpamProtectedMessage(channel, text, false);
     }
     
     /**
@@ -3590,6 +3596,9 @@ public class TwitchClient {
                     modCommandAddStreamHighlight(user, text, tags);
                 }
                 historyManager.setMessageSeen(user.getStream());
+                if (autoReplyService != null) {
+                    autoReplyService.handleMessage(user, text, action, tags);
+                }
             }
         }
 

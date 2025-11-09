@@ -219,7 +219,8 @@ public class AutoReplyManager {
         boolean notify = toBoolean(map.get("notify"), false);
         String sound = normalize(map.get("sound"));
         Map<String, String> overrides = toStringMap(map.get("overrides"));
-        List<String> allow = toStringList(map.get("allow"));
+        Object allowData = map.containsKey("authors") ? map.get("authors") : map.get("allow");
+        List<String> allow = toStringList(allowData);
         List<String> block = toStringList(map.get("block"));
         return new AutoReplyTrigger(id, pattern, patternType, reply, cooldown,
                 overrides, allow, block, notify, sound,
@@ -500,7 +501,9 @@ public class AutoReplyManager {
                 result.put("overrides", new LinkedHashMap<>(authorOverrides));
             }
             if (!allowAuthors.isEmpty()) {
-                result.put("allow", new ArrayList<>(allowAuthors));
+                List<String> authors = new ArrayList<>(allowAuthors);
+                result.put("allow", new ArrayList<>(authors));
+                result.put("authors", new ArrayList<>(authors));
             }
             if (!blockAuthors.isEmpty()) {
                 result.put("block", new ArrayList<>(blockAuthors));

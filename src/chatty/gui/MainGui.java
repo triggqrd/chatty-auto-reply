@@ -5,6 +5,7 @@ import chatty.gui.transparency.TransparencyManager;
 import chatty.gui.laf.LaF;
 import chatty.util.colors.HtmlColors;
 import chatty.Addressbook;
+import chatty.AutoReplyManager;
 import chatty.ChannelState;
 import chatty.gui.components.textpane.UserMessage;
 import chatty.gui.components.DebugWindow;
@@ -181,6 +182,7 @@ public class MainGui extends JFrame implements Runnable {
     private final Highlighter ignoreList = new Highlighter("ignore");
     private final Highlighter filter = new Highlighter("filter");
     public final RepeatMsgHelper repeatMsg;
+    private final AutoReplyManager autoReplyManager;
     private final MsgColorManager msgColorManager;
     private StyleManager styleManager;
     private TrayIconManager trayIcon;
@@ -204,6 +206,7 @@ public class MainGui extends JFrame implements Runnable {
         msgColorManager = new MsgColorManager(client.settings);
         localEmotes = new LocalEmotesSetting(client.settings, this);
         repeatMsg = new RepeatMsgHelper(client.settings);
+        autoReplyManager = new AutoReplyManager(client.settings);
         SwingUtilities.invokeLater(this);
     }
     
@@ -5762,6 +5765,10 @@ public class MainGui extends JFrame implements Runnable {
     
     public Settings getSettings() {
         return client.settings;
+    }
+
+    public AutoReplyManager getAutoReplyManager() {
+        return autoReplyManager;
     }
     
     public Collection<String> getSettingNames() {

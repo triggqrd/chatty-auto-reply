@@ -669,6 +669,14 @@ public class SettingsManager {
         settings.addBoolean("highlightMatchesAllEntries", false);
         settings.addBoolean("highlightByPoints", true);
 
+        // Auto Reply
+        settings.addList("autoReplyProfiles", new ArrayList(), Setting.MAP);
+        settings.addString("autoReplyActiveProfile", "default");
+        settings.addLong("autoReplyGlobalCooldown", 0);
+        settings.addBoolean("autoReplySelfIgnore", true);
+        settings.addBoolean("autoReplyDefaultNotification", false);
+        settings.addString("autoReplyDefaultSound", "");
+
         // Ignore
         settings.addList("ignore", new ArrayList(), Setting.STRING);
         settings.addBoolean("ignoreEnabled", false);

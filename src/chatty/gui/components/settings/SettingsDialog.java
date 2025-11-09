@@ -150,6 +150,7 @@ public class SettingsDialog extends JDialog implements ActionListener {
         HIGHLIGHT("Highlight", Language.getString("settings.page.highlight")),
         IGNORE("Ignore", Language.getString("settings.page.ignore")),
         FILTER("Filter", Language.getString("settings.page.filter")),
+        AUTO_REPLY("Auto Reply", Language.getString("settings.page.autoReply")),
         CUSTOM_TABS("Custom Tabs", Language.getString("settings.page.customTabs")),
         SHARED_CHAT("Shared Chat", Language.getString("settings.page.sharedChat")),
         HISTORY("History", Language.getString("settings.page.history")),
@@ -213,6 +214,7 @@ public class SettingsDialog extends JDialog implements ActionListener {
             Page.HIGHLIGHT,
             Page.IGNORE,
             Page.FILTER,
+            Page.AUTO_REPLY,
             Page.CUSTOM_TABS,
             Page.LOGGING,
             Page.SHARED_CHAT,
@@ -309,6 +311,7 @@ public class SettingsDialog extends JDialog implements ActionListener {
         panels.put(Page.HIGHLIGHT, new HighlightSettings(this));
         panels.put(Page.IGNORE, new IgnoreSettings(this));
         panels.put(Page.FILTER, new FilterSettings(this));
+        panels.put(Page.AUTO_REPLY, new AutoReplySettings(this));
         panels.put(Page.CUSTOM_TABS, new RoutingSettings(this));
         panels.put(Page.SHARED_CHAT, new SharedChatSettings(this));
         panels.put(Page.MSGCOLORS, new MsgColorSettings(this));
@@ -589,6 +592,7 @@ public class SettingsDialog extends JDialog implements ActionListener {
         getPanel(NotificationSettings.class).setData(owner.getNotificationData());
         getPanel(EmoteSettings.class).setData(owner.localEmotes.getData());
         getPanel(RoutingSettings.class).setData(owner.routingManager.getData());
+        getPanel(AutoReplySettings.class).setData(owner.getAutoReplyManager().getConfig());
     }
     
     public void updateBackgroundColor() {
@@ -667,6 +671,7 @@ public class SettingsDialog extends JDialog implements ActionListener {
         owner.setNotificationData(getPanel(NotificationSettings.class).getData());
         owner.localEmotes.setData(getPanel(EmoteSettings.class).getData());
         owner.routingManager.setData(getPanel(RoutingSettings.class).getData());
+        owner.getAutoReplyManager().applyConfig(getPanel(AutoReplySettings.class).getData());
         if (restartRequired) {
             JOptionPane.showMessageDialog(this, RESTART_REQUIRED_INFO, "Info", JOptionPane.INFORMATION_MESSAGE);
         }

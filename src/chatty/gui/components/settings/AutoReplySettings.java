@@ -8,6 +8,7 @@ import chatty.AutoReplyManager.PatternType;
 import chatty.gui.GuiUtil;
 import chatty.lang.Language;
 import chatty.util.StringUtil;
+import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
@@ -64,7 +65,12 @@ public class AutoReplySettings extends SettingsPanel {
 
     private final JTextField patternField = new JTextField();
     private final JComboBox<PatternType> patternTypeCombo = new JComboBox<>(PatternType.values());
-    private final JTextArea replyArea = new JTextArea(4, 30);
+    private final DefaultListModel<String> replyListModel = new DefaultListModel<>();
+    private final JList<String> replyList = new JList<>(replyListModel);
+    private final JTextField replyInputField = new JTextField();
+    private final JButton addReplyButton = new JButton(Language.getString("dialog.button.add"));
+    private final JButton editReplyButton = new JButton(Language.getString("dialog.button.edit"));
+    private final JButton removeReplyButton = new JButton(Language.getString("dialog.button.remove"));
     private final JSpinner triggerCooldownSpinner = new JSpinner(new SpinnerNumberModel(0L, 0L, Long.MAX_VALUE, 1L));
     private final JTextArea overridesArea = new JTextArea(4, 30);
     private final JTextArea allowArea = new JTextArea(3, 20);
@@ -82,6 +88,7 @@ public class AutoReplySettings extends SettingsPanel {
         installListeners();
         updateActiveProfileCombo();
         setTriggerFormEnabled(false);
+        updateReplyButtonsState();
         validationLabel.setForeground(Color.GRAY);
         validationLabel.setText(Language.getString("settings.autoReply.triggers.help"));
     }
@@ -288,11 +295,44 @@ public class AutoReplySettings extends SettingsPanel {
         formGbc.gridx = 1;
         formGbc.fill = GridBagConstraints.BOTH;
         formGbc.weighty = 0.3;
-        replyArea.setLineWrap(true);
-        replyArea.setWrapStyleWord(true);
-        JScrollPane replyScroll = new JScrollPane(replyArea);
+        replyList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        replyList.setVisibleRowCount(4);
+        JScrollPane replyScroll = new JScrollPane(replyList);
         replyScroll.setPreferredSize(new Dimension(200, 80));
-        form.add(replyScroll, formGbc);
+        JPanel replyPanel = new JPanel(new BorderLayout(5, 5));
+        replyPanel.add(replyScroll, BorderLayout.CENTER);
+
+        JPanel replyControls = new JPanel(new GridBagLayout());
+        GridBagConstraints replyControlGbc = new GridBagConstraints();
+        replyControlGbc.gridx = 0;
+        replyControlGbc.gridy = 0;
+        replyControlGbc.weightx = 1;
+        replyControlGbc.fill = GridBagConstraints.HORIZONTAL;
+        replyControlGbc.insets = new Insets(0, 0, 0, 5);
+        replyControls.add(replyInputField, replyControlGbc);
+
+        replyControlGbc.weightx = 0;
+        replyControlGbc.fill = GridBagConstraints.NONE;
+        replyControlGbc.insets = new Insets(0, 0, 0, 0);
+
+        replyControlGbc.gridx = 1;
+        GuiUtil.smallButtonInsets(addReplyButton);
+        replyControlGbc.insets = new Insets(0, 0, 0, 0);
+        replyControls.add(addReplyButton, replyControlGbc);
+
+        replyControlGbc.gridx = 2;
+        GuiUtil.smallButtonInsets(editReplyButton);
+        replyControlGbc.insets = new Insets(0, 5, 0, 0);
+        replyControls.add(editReplyButton, replyControlGbc);
+
+        replyControlGbc.gridx = 3;
+        GuiUtil.smallButtonInsets(removeReplyButton);
+        replyControlGbc.insets = new Insets(0, 5, 0, 0);
+        replyControls.add(removeReplyButton, replyControlGbc);
+
+        replyPanel.add(replyControls, BorderLayout.SOUTH);
+
+        form.add(replyPanel, formGbc);
 
         formGbc.gridy++;
         formGbc.gridx = 0;
@@ -379,10 +419,26 @@ public class AutoReplySettings extends SettingsPanel {
         triggerList.addListSelectionListener(triggerSelectionListener());
 
         patternField.getDocument().addDocumentListener(documentListener(this::updatePattern));
-        replyArea.getDocument().addDocumentListener(documentListener(this::updateReply));
         overridesArea.getDocument().addDocumentListener(documentListener(this::updateOverrides));
         allowArea.getDocument().addDocumentListener(documentListener(this::updateAllowList));
         blockArea.getDocument().addDocumentListener(documentListener(this::updateBlockList));
+
+        addReplyButton.addActionListener(e -> addReplyEntry());
+        editReplyButton.addActionListener(e -> editReplyEntry());
+        removeReplyButton.addActionListener(e -> removeReplyEntry());
+        replyInputField.getDocument().addDocumentListener(documentListener(this::updateReplyButtonsState));
+        replyInputField.addActionListener(e -> addReplyEntry());
+        replyList.addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) {
+                String selected = replyList.getSelectedValue();
+                if (selected != null) {
+                    replyInputField.setText(selected);
+                } else if (!updatingTriggerForm) {
+                    replyInputField.setText("");
+                }
+                updateReplyButtonsState();
+            }
+        });
 
         patternTypeCombo.addActionListener(e -> updatePatternType());
         triggerCooldownSpinner.addChangeListener(e -> updateTriggerCooldown());
@@ -477,7 +533,7 @@ public class AutoReplySettings extends SettingsPanel {
 
     public AutoReplyConfig getData() {
         updatePattern();
-        updateReply();
+        updateReplies();
         updateOverrides();
         updateAllowList();
         updateBlockList();
@@ -636,7 +692,7 @@ public class AutoReplySettings extends SettingsPanel {
         setTriggerFormEnabled(true);
         patternField.setText(trigger.getPattern());
         patternTypeCombo.setSelectedItem(trigger.getPatternType());
-        replyArea.setText(trigger.getReply());
+        setReplyList(trigger.getReplies());
         triggerCooldownSpinner.setValue(Long.valueOf(trigger.getCooldown()));
         overridesArea.setText(formatOverrides(trigger.getAuthorOverrides()));
         allowArea.setText(formatList(trigger.getAllowAuthors()));
@@ -651,7 +707,9 @@ public class AutoReplySettings extends SettingsPanel {
         updatingTriggerForm = true;
         patternField.setText("");
         patternTypeCombo.setSelectedItem(PatternType.PLAIN);
-        replyArea.setText("");
+        replyListModel.clear();
+        replyList.clearSelection();
+        replyInputField.setText("");
         triggerCooldownSpinner.setValue(0L);
         overridesArea.setText("");
         allowArea.setText("");
@@ -661,18 +719,27 @@ public class AutoReplySettings extends SettingsPanel {
         setTriggerFormEnabled(false);
         updatingTriggerForm = false;
         validationLabel.setText(Language.getString("settings.autoReply.triggers.help"));
+        updateReplyButtonsState();
     }
 
     private void setTriggerFormEnabled(boolean enabled) {
         patternField.setEnabled(enabled);
         patternTypeCombo.setEnabled(enabled);
-        replyArea.setEnabled(enabled);
+        replyList.setEnabled(enabled);
+        replyInputField.setEnabled(enabled);
         triggerCooldownSpinner.setEnabled(enabled);
         overridesArea.setEnabled(enabled);
         allowArea.setEnabled(enabled);
         blockArea.setEnabled(enabled);
         triggerNotificationCheck.setEnabled(enabled);
         triggerSoundCombo.setEnabled(enabled);
+        if (!enabled) {
+            addReplyButton.setEnabled(false);
+            editReplyButton.setEnabled(false);
+            removeReplyButton.setEnabled(false);
+        } else {
+            updateReplyButtonsState();
+        }
     }
 
     private void updatePattern() {
@@ -698,14 +765,112 @@ public class AutoReplySettings extends SettingsPanel {
         }
     }
 
-    private void updateReply() {
+    private void updateReplies() {
         if (updatingTriggerForm) {
             return;
         }
         AutoReplyTrigger trigger = triggerList.getSelectedValue();
         if (trigger != null) {
-            trigger.setReply(replyArea.getText());
+            trigger.setReplies(getRepliesFromModel());
+            updateValidationForTrigger(trigger);
         }
+    }
+
+    private void addReplyEntry() {
+        if (updatingTriggerForm || !replyList.isEnabled()) {
+            return;
+        }
+        String text = replyInputField.getText().trim();
+        if (text.isEmpty()) {
+            return;
+        }
+        replyListModel.addElement(text);
+        replyList.setSelectedIndex(replyListModel.size() - 1);
+        replyInputField.setText("");
+        updateReplies();
+        updateReplyButtonsState();
+    }
+
+    private void editReplyEntry() {
+        if (updatingTriggerForm || !replyList.isEnabled()) {
+            return;
+        }
+        int index = replyList.getSelectedIndex();
+        if (index < 0) {
+            return;
+        }
+        String text = replyInputField.getText().trim();
+        if (text.isEmpty()) {
+            replyListModel.remove(index);
+            replyList.clearSelection();
+        } else {
+            replyListModel.set(index, text);
+            replyList.setSelectedIndex(index);
+        }
+        updateReplies();
+        updateReplyButtonsState();
+    }
+
+    private void removeReplyEntry() {
+        if (updatingTriggerForm || !replyList.isEnabled()) {
+            return;
+        }
+        int index = replyList.getSelectedIndex();
+        if (index < 0) {
+            return;
+        }
+        replyListModel.remove(index);
+        if (!replyListModel.isEmpty()) {
+            int newIndex = Math.min(index, replyListModel.size() - 1);
+            replyList.setSelectedIndex(newIndex);
+        } else {
+            replyList.clearSelection();
+            replyInputField.setText("");
+        }
+        updateReplies();
+        updateReplyButtonsState();
+    }
+
+    private void updateReplyButtonsState() {
+        boolean controlsEnabled = replyList.isEnabled();
+        String text = replyInputField.getText().trim();
+        int selectedIndex = replyList.getSelectedIndex();
+        addReplyButton.setEnabled(controlsEnabled && !text.isEmpty());
+        editReplyButton.setEnabled(controlsEnabled && selectedIndex >= 0 && !text.isEmpty());
+        removeReplyButton.setEnabled(controlsEnabled && selectedIndex >= 0);
+    }
+
+    private List<String> getRepliesFromModel() {
+        List<String> replies = new ArrayList<>();
+        for (int i = 0; i < replyListModel.size(); i++) {
+            String value = replyListModel.getElementAt(i);
+            if (value != null) {
+                String trimmed = value.trim();
+                if (!trimmed.isEmpty()) {
+                    replies.add(trimmed);
+                }
+            }
+        }
+        return replies;
+    }
+
+    private void setReplyList(List<String> replies) {
+        replyListModel.clear();
+        if (replies != null) {
+            for (String reply : replies) {
+                if (!StringUtil.isNullOrEmpty(reply)) {
+                    replyListModel.addElement(reply);
+                }
+            }
+        }
+        if (!replyListModel.isEmpty()) {
+            replyList.setSelectedIndex(0);
+            replyInputField.setText(replyListModel.getElementAt(0));
+        } else {
+            replyList.clearSelection();
+            replyInputField.setText("");
+        }
+        updateReplyButtonsState();
     }
 
     private void updateTriggerCooldown() {
@@ -844,6 +1009,8 @@ public class AutoReplySettings extends SettingsPanel {
         }
         if (StringUtil.isNullOrEmpty(trigger.getPattern())) {
             validationLabel.setText(Language.getString("settings.autoReply.validation.pattern"));
+        } else if (trigger.getReplies().isEmpty()) {
+            validationLabel.setText(Language.getString("settings.autoReply.validation.reply"));
         } else {
             validationLabel.setText(Language.getString("settings.autoReply.triggers.help"));
         }

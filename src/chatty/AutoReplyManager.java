@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -211,14 +212,20 @@ public class AutoReplyManager {
         }
         String pattern = normalize(map.get("pattern"));
         PatternType patternType = PatternType.fromString(normalize(map.get("patternType")));
-        String reply = normalize(map.get("reply"));
+        List<String> replies = toStringList(map.get("replies"));
+        if (replies.isEmpty()) {
+            String singleReply = normalize(map.get("reply"));
+            if (!StringUtil.isNullOrEmpty(singleReply)) {
+                replies.add(singleReply);
+            }
+        }
         long cooldown = toLong(map.get("cooldown"), 0);
         boolean notify = toBoolean(map.get("notify"), false);
         String sound = normalize(map.get("sound"));
         Map<String, String> overrides = toStringMap(map.get("overrides"));
         List<String> allow = toStringList(map.get("allow"));
         List<String> block = toStringList(map.get("block"));
-        return new AutoReplyTrigger(id, pattern, patternType, reply, cooldown,
+        return new AutoReplyTrigger(id, pattern, patternType, replies, cooldown,
                 overrides, allow, block, notify, sound);
     }
 
@@ -433,7 +440,7 @@ public class AutoReplyManager {
         private final String id;
         private String pattern;
         private PatternType patternType;
-        private String reply;
+        private List<String> replies;
         private long cooldown;
         private Map<String, String> authorOverrides;
         private List<String> allowAuthors;
@@ -441,14 +448,14 @@ public class AutoReplyManager {
         private boolean notificationEnabled;
         private String sound;
 
-        public AutoReplyTrigger(String id, String pattern, PatternType patternType, String reply,
+        public AutoReplyTrigger(String id, String pattern, PatternType patternType, List<String> replies,
                 long cooldown, Map<String, String> authorOverrides,
                 List<String> allowAuthors, List<String> blockAuthors,
                 boolean notificationEnabled, String sound) {
             this.id = Objects.requireNonNull(id);
             this.pattern = pattern == null ? "" : pattern;
             this.patternType = patternType == null ? PatternType.PLAIN : patternType;
-            this.reply = reply == null ? "" : reply;
+            this.replies = sanitizeReplies(replies);
             this.cooldown = Math.max(0, cooldown);
             this.authorOverrides = new LinkedHashMap<>(authorOverrides == null ? Collections.emptyMap() : authorOverrides);
             this.allowAuthors = new ArrayList<>(allowAuthors == null ? Collections.emptyList() : allowAuthors);
@@ -458,17 +465,17 @@ public class AutoReplyManager {
         }
 
         public static AutoReplyTrigger create() {
-            return new AutoReplyTrigger(generateId(), "", PatternType.PLAIN, "", 0,
+            return new AutoReplyTrigger(generateId(), "", PatternType.PLAIN, new ArrayList<>(), 0,
                     new LinkedHashMap<>(), new ArrayList<>(), new ArrayList<>(), false, null);
         }
 
         public AutoReplyTrigger copy() {
-            return new AutoReplyTrigger(id, pattern, patternType, reply, cooldown,
+            return new AutoReplyTrigger(id, pattern, patternType, replies, cooldown,
                     authorOverrides, allowAuthors, blockAuthors, notificationEnabled, sound);
         }
 
         public AutoReplyTrigger copyWithNewId() {
-            return new AutoReplyTrigger(generateId(), pattern, patternType, reply, cooldown,
+            return new AutoReplyTrigger(generateId(), pattern, patternType, replies, cooldown,
                     authorOverrides, allowAuthors, blockAuthors, notificationEnabled, sound);
         }
 
@@ -477,7 +484,9 @@ public class AutoReplyManager {
             result.put("id", id);
             result.put("pattern", pattern);
             result.put("patternType", patternType.name());
-            result.put("reply", reply);
+            if (!replies.isEmpty()) {
+                result.put("replies", new ArrayList<>(replies));
+            }
             result.put("cooldown", cooldown);
             if (!authorOverrides.isEmpty()) {
                 result.put("overrides", new LinkedHashMap<>(authorOverrides));
@@ -515,12 +524,23 @@ public class AutoReplyManager {
             this.patternType = patternType == null ? PatternType.PLAIN : patternType;
         }
 
-        public String getReply() {
-            return reply;
+        public List<String> getReplies() {
+            return replies;
         }
 
-        public void setReply(String reply) {
-            this.reply = reply == null ? "" : reply;
+        public void setReplies(List<String> replies) {
+            this.replies = sanitizeReplies(replies);
+        }
+
+        public String chooseReply(String author) {
+            String override = resolveOverride(author);
+            if (override != null) {
+                return override;
+            }
+            if (replies.isEmpty()) {
+                return "";
+            }
+            return replies.get(ThreadLocalRandom.current().nextInt(replies.size()));
         }
 
         public long getCooldown() {
@@ -574,6 +594,31 @@ public class AutoReplyManager {
         @Override
         public String toString() {
             return pattern;
+        }
+
+        private static List<String> sanitizeReplies(List<String> replies) {
+            List<String> result = new ArrayList<>();
+            if (replies != null) {
+                for (String reply : replies) {
+                    String normalized = normalize(reply);
+                    if (!StringUtil.isNullOrEmpty(normalized)) {
+                        result.add(normalized);
+                    }
+                }
+            }
+            return result;
+        }
+
+        private String resolveOverride(String author) {
+            if (StringUtil.isNullOrEmpty(author) || authorOverrides.isEmpty()) {
+                return null;
+            }
+            for (Map.Entry<String, String> entry : authorOverrides.entrySet()) {
+                if (author.equalsIgnoreCase(entry.getKey())) {
+                    return entry.getValue();
+                }
+            }
+            return null;
         }
     }
 

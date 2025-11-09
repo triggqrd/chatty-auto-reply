@@ -549,6 +549,8 @@ public class SettingsDialog extends JDialog implements ActionListener {
                 } else if (action.equals("editHotkey")) {
                     showPanel(Page.HOTKEYS);
                     getPanel(HotkeySettings.class).edit((String) parameter);
+                } else if (action.equals("showAutoReply")) {
+                    showPanel(Page.AUTO_REPLY);
                 }
             }
         });

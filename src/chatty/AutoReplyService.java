@@ -22,7 +22,11 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Pattern;
@@ -49,12 +53,14 @@ public class AutoReplyService implements AutoReplyManager.Listener {
 
     private final Map<String, TriggerState> stateById = new HashMap<>();
     private List<PreparedTrigger> triggers = Collections.emptyList();
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(new TriggerThreadFactory());
 
     private boolean selfIgnore = true;
     private boolean defaultNotification;
     private String defaultSound;
     private long globalCooldownMillis = 0L;
     private long nextGlobalAvailable = 0L;
+    private boolean enabled = true;
 
     public AutoReplyService(TwitchClient client, MainGui gui, AutoReplyManager manager) {
         this.client = Objects.requireNonNull(client);
@@ -73,14 +79,16 @@ public class AutoReplyService implements AutoReplyManager.Listener {
         PreparedTrigger[] activeTriggers;
         boolean ignoreSelf;
         long globalAvailable;
+        boolean autoEnabled;
 
         synchronized (lock) {
             activeTriggers = triggers.toArray(new PreparedTrigger[0]);
             ignoreSelf = selfIgnore;
             globalAvailable = nextGlobalAvailable;
+            autoEnabled = enabled;
         }
 
-        if (activeTriggers.length == 0) {
+        if (!autoEnabled || activeTriggers.length == 0) {
             return;
         }
 
@@ -125,28 +133,70 @@ public class AutoReplyService implements AutoReplyManager.Listener {
                 continue;
             }
 
-            boolean sent = client.sendAutoReplyMessage(user.getChannel(), reply);
-            if (sent) {
-                handlePostSend(trigger, state, now);
-            }
-            else {
-                LOGGER.log(Level.FINE, "Failed to send auto reply for trigger {0}", trigger.id);
-            }
+            scheduleAutoReply(trigger, state, user.getChannel(), reply, now);
             break;
         }
     }
 
-    private void handlePostSend(PreparedTrigger trigger, TriggerState state, long now) {
+    private void scheduleAutoReply(PreparedTrigger trigger, TriggerState state, String channel, String reply, long now) {
+        long delay = trigger.nextDelayMillis();
+        long scheduledTime = now + delay;
+        state.reset();
+        state.markPending(scheduledTime, trigger.cooldownMillis);
+        long globalCooldown = Math.max(globalCooldownMillis, 0L);
+        synchronized (lock) {
+            nextGlobalAvailable = Math.max(nextGlobalAvailable, scheduledTime + globalCooldown);
+        }
+        scheduler.schedule(() -> dispatchAutoReply(trigger, state, channel, reply, scheduledTime), delay, TimeUnit.MILLISECONDS);
+    }
+
+    private void dispatchAutoReply(PreparedTrigger trigger, TriggerState state, String channel, String reply, long scheduledTime) {
+        if (!isTriggerActive(trigger.id, state)) {
+            state.cancelPending();
+            return;
+        }
+        boolean sent = client.sendAutoReplyMessage(channel, reply);
+        if (sent) {
+            handlePostSend(trigger, state, scheduledTime, channel, reply);
+        }
+        else {
+            state.cancelPending();
+            LOGGER.log(Level.FINE, "Failed to send auto reply for trigger {0}", trigger.id);
+        }
+    }
+
+    private boolean isTriggerActive(String triggerId, TriggerState state) {
+        synchronized (lock) {
+            return enabled && stateById.get(triggerId) == state;
+        }
+    }
+
+    private void handlePostSend(PreparedTrigger trigger, TriggerState state, long scheduledTime, String channel, String reply) {
         synchronized (lock) {
             state.reset();
-            state.markCooldown(now + trigger.cooldownMillis);
+            state.markCooldown(scheduledTime + trigger.cooldownMillis);
             long cooldown = Math.max(globalCooldownMillis, 0L);
-            nextGlobalAvailable = Math.max(nextGlobalAvailable, now) + cooldown;
+            nextGlobalAvailable = Math.max(nextGlobalAvailable, scheduledTime + cooldown);
         }
         if (trigger.shouldNotify(defaultNotification)) {
             gui.printSystem(trigger.buildNotificationMessage());
+            gui.triggerCommandNotification(channel, "[Auto Reply] %s", trigger.notificationBody(), false, true);
         }
+        printAutoReplyMessage(channel, reply);
         playSoundIfConfigured(trigger.resolveSound(defaultSound), trigger.id);
+    }
+
+    private void printAutoReplyMessage(String channel, String reply) {
+        if (StringUtil.isNullOrEmpty(channel) || StringUtil.isNullOrEmpty(reply)) {
+            return;
+        }
+        User localUser = client.getLocalUser(channel);
+        if (localUser == null) {
+            localUser = client.getUser(channel, client.getUsername());
+        }
+        if (localUser != null) {
+            gui.printMessage(localUser, reply, false, MsgTags.EMPTY);
+        }
     }
 
     private void updateConfig(AutoReplyConfig config) {
@@ -160,6 +210,9 @@ public class AutoReplyService implements AutoReplyManager.Listener {
 
         if (profile != null) {
             for (AutoReplyTrigger trigger : profile.getTriggers()) {
+                if (!trigger.isEnabled()) {
+                    continue;
+                }
                 PreparedTrigger preparedTrigger = PreparedTrigger.create(trigger, existing.get(trigger.getId()));
                 if (preparedTrigger != null) {
                     prepared.add(preparedTrigger);
@@ -180,6 +233,7 @@ public class AutoReplyService implements AutoReplyManager.Listener {
             if (nextGlobalAvailable < System.currentTimeMillis()) {
                 nextGlobalAvailable = System.currentTimeMillis();
             }
+            enabled = config.isEnabled();
         }
     }
 
@@ -242,9 +296,7 @@ public class AutoReplyService implements AutoReplyManager.Listener {
         private final Pattern regexPattern;
         private final String plainPattern;
         private final List<String> replies;
-        private final Map<String, List<String>> authorOverrides;
         private final Set<String> allowedAuthors;
-        private final Set<String> blockedAuthors;
         private final boolean notify;
         private final String sound;
         private final String patternDisplay;
@@ -252,15 +304,15 @@ public class AutoReplyService implements AutoReplyManager.Listener {
         private final long timeWindowMillis;
         private final long requiredUniqueUsers;
         private final long requiredMentionsPerUser;
+        private final long minDelayMillis;
+        private final long maxDelayMillis;
         private final TriggerState state;
 
         private PreparedTrigger(String id,
                                 Pattern regexPattern,
                                 String plainPattern,
                                 List<String> replies,
-                                Map<String, List<String>> authorOverrides,
                                 Set<String> allowedAuthors,
-                                Set<String> blockedAuthors,
                                 boolean notify,
                                 String sound,
                                 String patternDisplay,
@@ -268,14 +320,14 @@ public class AutoReplyService implements AutoReplyManager.Listener {
                                 long timeWindowMillis,
                                 long requiredUniqueUsers,
                                 long requiredMentionsPerUser,
+                                long minDelayMillis,
+                                long maxDelayMillis,
                                 TriggerState state) {
             this.id = id;
             this.regexPattern = regexPattern;
             this.plainPattern = plainPattern;
             this.replies = replies;
-            this.authorOverrides = authorOverrides;
             this.allowedAuthors = allowedAuthors;
-            this.blockedAuthors = blockedAuthors;
             this.notify = notify;
             this.sound = sound;
             this.patternDisplay = patternDisplay;
@@ -283,6 +335,8 @@ public class AutoReplyService implements AutoReplyManager.Listener {
             this.timeWindowMillis = timeWindowMillis;
             this.requiredUniqueUsers = requiredUniqueUsers;
             this.requiredMentionsPerUser = requiredMentionsPerUser;
+            this.minDelayMillis = minDelayMillis;
+            this.maxDelayMillis = maxDelayMillis;
             this.state = state;
         }
 
@@ -312,36 +366,18 @@ public class AutoReplyService implements AutoReplyManager.Listener {
                 }
             }
 
-            Map<String, List<String>> overrides = buildOverrides(trigger.getAuthorOverrides());
             Set<String> allow = toLowerCaseSet(trigger.getAllowAuthors());
-            Set<String> block = toLowerCaseSet(trigger.getBlockAuthors());
             long cooldown = Math.max(0L, trigger.getCooldown()) * 1000L;
             long timeWindow = Math.max(0L, trigger.getTimeWindowSec()) * 1000L;
             long requiredUsers = trigger.getMinUniqueUsers() > 0 ? trigger.getMinUniqueUsers() : 1L;
             long requiredMentions = trigger.getMinMentionsPerUser() > 0 ? trigger.getMinMentionsPerUser() : 1L;
+            long minDelay = Math.max(0L, trigger.getMinDelayMillis());
+            long maxDelay = Math.max(minDelay, trigger.getMaxDelayMillis());
             TriggerState state = previousState != null ? previousState : new TriggerState();
 
-            return new PreparedTrigger(trigger.getId(), regex, plain, replies, overrides, allow, block,
+            return new PreparedTrigger(trigger.getId(), regex, plain, replies, allow,
                     trigger.isNotificationEnabled(), trigger.getSound(), trigger.getPattern(), cooldown,
-                    timeWindow, requiredUsers, requiredMentions, state);
-        }
-
-        private static Map<String, List<String>> buildOverrides(Map<String, String> overrides) {
-            if (overrides == null || overrides.isEmpty()) {
-                return Collections.emptyMap();
-            }
-            Map<String, List<String>> result = new HashMap<>();
-            for (Map.Entry<String, String> entry : overrides.entrySet()) {
-                String key = entry.getKey();
-                if (StringUtil.isNullOrEmpty(key)) {
-                    continue;
-                }
-                List<String> replies = parseReplies(entry.getValue());
-                if (!replies.isEmpty()) {
-                    result.put(key.toLowerCase(Locale.ENGLISH), replies);
-                }
-            }
-            return result.isEmpty() ? Collections.emptyMap() : result;
+                    timeWindow, requiredUsers, requiredMentions, minDelay, maxDelay, state);
         }
 
         private static Set<String> toLowerCaseSet(Collection<String> values) {
@@ -362,7 +398,7 @@ public class AutoReplyService implements AutoReplyManager.Listener {
             if (!allowedAuthors.isEmpty() && !allowedAuthors.contains(normalized)) {
                 return false;
             }
-            return !blockedAuthors.contains(normalized);
+            return true;
         }
 
         private boolean matchesMessage(MatchContext context) {
@@ -390,8 +426,7 @@ public class AutoReplyService implements AutoReplyManager.Listener {
         }
 
         private String chooseReply(String author) {
-            List<String> override = authorOverrides.get(author.toLowerCase(Locale.ENGLISH));
-            List<String> pool = override != null ? override : replies;
+            List<String> pool = replies;
             if (pool.isEmpty()) {
                 return null;
             }
@@ -407,12 +442,27 @@ public class AutoReplyService implements AutoReplyManager.Listener {
             return String.format("[Auto Reply] Triggered: %s", patternDisplay);
         }
 
+        private String notificationBody() {
+            return String.format("Triggered: %s", patternDisplay);
+        }
+
         private String resolveSound(String defaultSound) {
             String result = sound;
             if (StringUtil.isNullOrEmpty(result)) {
                 result = defaultSound;
             }
             return result;
+        }
+
+        private long nextDelayMillis() {
+            long min = Math.max(0L, minDelayMillis);
+            long max = Math.max(min, maxDelayMillis);
+            if (max <= min) {
+                return min;
+            }
+            long range = max - min;
+            long random = ThreadLocalRandom.current().nextLong(range + 1);
+            return min + random;
         }
 
         private static List<String> parseReplies(String text) {
@@ -452,6 +502,7 @@ public class AutoReplyService implements AutoReplyManager.Listener {
 
         private final Map<String, Deque<MatchEntry>> matches = new HashMap<>();
         private long nextAvailableTime = 0L;
+        private boolean pending;
 
         private void recordMatch(String user, long timestamp, long requiredMentions, long windowMillis,
                 boolean recipientMention, boolean directMention) {
@@ -481,15 +532,26 @@ public class AutoReplyService implements AutoReplyManager.Listener {
         }
 
         private boolean isCooldownComplete(long now) {
-            return now >= nextAvailableTime;
+            return !pending && now >= nextAvailableTime;
+        }
+
+        private void markPending(long scheduledTime, long cooldownMillis) {
+            pending = true;
+            long next = cooldownMillis > 0 ? scheduledTime + cooldownMillis : scheduledTime;
+            nextAvailableTime = Math.max(nextAvailableTime, next);
         }
 
         private void markCooldown(long timestamp) {
             nextAvailableTime = Math.max(nextAvailableTime, timestamp);
+            pending = false;
         }
 
         private void reset() {
             matches.clear();
+        }
+
+        private void cancelPending() {
+            pending = false;
         }
 
         private void pruneAll(long now, long requiredMentions, long windowMillis) {
@@ -537,6 +599,16 @@ public class AutoReplyService implements AutoReplyManager.Listener {
                 this.recipientMention = recipientMention;
                 this.directMention = directMention;
             }
+        }
+    }
+
+    private static final class TriggerThreadFactory implements ThreadFactory {
+
+        @Override
+        public Thread newThread(Runnable r) {
+            Thread thread = new Thread(r, "AutoReplyScheduler");
+            thread.setDaemon(true);
+            return thread;
         }
     }
 }

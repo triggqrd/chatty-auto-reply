@@ -12,6 +12,7 @@ import chatty.gui.Channels.DockChannelContainer;
 import chatty.gui.GuiUtil;
 import chatty.gui.components.menus.ContextMenuListener;
 import chatty.gui.components.menus.TextSelectionMenu;
+import chatty.gui.components.AutoReplyStatusIndicator;
 import chatty.gui.components.textpane.ChannelTextPane;
 import chatty.gui.components.textpane.InfoMessage;
 import chatty.gui.components.textpane.Message;
@@ -23,6 +24,7 @@ import chatty.util.commands.CustomCommand;
 import chatty.util.commands.Parameters;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
+import java.awt.FlowLayout;
 import java.awt.Point;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -118,6 +120,12 @@ public final class Channel extends JPanel {
         TextSelectionMenu.install(input);
         
         inputPanel = new JPanel(new BorderLayout());
+        AutoReplyStatusIndicator statusIndicator = new AutoReplyStatusIndicator();
+        JPanel statusPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        statusPanel.setOpaque(false);
+        statusPanel.add(statusIndicator);
+        inputPanel.add(statusPanel, BorderLayout.NORTH);
+        main.configureAutoReplyIndicator(statusIndicator);
         inputPanel.add(input, BorderLayout.CENTER);
         
         modPanelButton = new JButton("M");

@@ -69,6 +69,9 @@ public class AutoReplySettings extends SettingsPanel {
     private final JTextArea overridesArea = new JTextArea(4, 30);
     private final JTextArea allowArea = new JTextArea(3, 20);
     private final JTextArea blockArea = new JTextArea(3, 20);
+    private final JSpinner triggerMinUniqueUsersSpinner = new JSpinner(new SpinnerNumberModel(0L, 0L, Long.MAX_VALUE, 1L));
+    private final JSpinner triggerMinMentionsPerUserSpinner = new JSpinner(new SpinnerNumberModel(0L, 0L, Long.MAX_VALUE, 1L));
+    private final JSpinner triggerTimeWindowSpinner = new JSpinner(new SpinnerNumberModel(0L, 0L, Long.MAX_VALUE, 1L));
     private final JCheckBox triggerNotificationCheck = new JCheckBox(Language.getString("settings.autoReply.trigger.notify"));
     private final JComboBox<String> triggerSoundCombo = new JComboBox<>(new String[]{"", "off", "ding.wav"});
     private final JLabel validationLabel = new JLabel();
@@ -308,6 +311,36 @@ public class AutoReplySettings extends SettingsPanel {
 
         formGbc.gridy++;
         formGbc.gridx = 0;
+        JLabel minUsersLabel = new JLabel(Language.getString("settings.autoReply.trigger.minUniqueUsers"));
+        minUsersLabel.setToolTipText(Language.getString("settings.autoReply.trigger.minUniqueUsers.tip"));
+        form.add(minUsersLabel, formGbc);
+
+        formGbc.gridx = 1;
+        triggerMinUniqueUsersSpinner.setPreferredSize(new Dimension(120, triggerMinUniqueUsersSpinner.getPreferredSize().height));
+        form.add(triggerMinUniqueUsersSpinner, formGbc);
+
+        formGbc.gridy++;
+        formGbc.gridx = 0;
+        JLabel minMentionsLabel = new JLabel(Language.getString("settings.autoReply.trigger.minMentionsPerUser"));
+        minMentionsLabel.setToolTipText(Language.getString("settings.autoReply.trigger.minMentionsPerUser.tip"));
+        form.add(minMentionsLabel, formGbc);
+
+        formGbc.gridx = 1;
+        triggerMinMentionsPerUserSpinner.setPreferredSize(new Dimension(120, triggerMinMentionsPerUserSpinner.getPreferredSize().height));
+        form.add(triggerMinMentionsPerUserSpinner, formGbc);
+
+        formGbc.gridy++;
+        formGbc.gridx = 0;
+        JLabel timeWindowLabel = new JLabel(Language.getString("settings.autoReply.trigger.timeWindow"));
+        timeWindowLabel.setToolTipText(Language.getString("settings.autoReply.trigger.timeWindow.tip"));
+        form.add(timeWindowLabel, formGbc);
+
+        formGbc.gridx = 1;
+        triggerTimeWindowSpinner.setPreferredSize(new Dimension(120, triggerTimeWindowSpinner.getPreferredSize().height));
+        form.add(triggerTimeWindowSpinner, formGbc);
+
+        formGbc.gridy++;
+        formGbc.gridx = 0;
         formGbc.anchor = GridBagConstraints.NORTHWEST;
         JLabel overridesLabel = new JLabel(Language.getString("settings.autoReply.trigger.authorOverrides"));
         overridesLabel.setToolTipText(Language.getString("settings.autoReply.trigger.authorOverrides.tip"));
@@ -386,6 +419,9 @@ public class AutoReplySettings extends SettingsPanel {
 
         patternTypeCombo.addActionListener(e -> updatePatternType());
         triggerCooldownSpinner.addChangeListener(e -> updateTriggerCooldown());
+        triggerMinUniqueUsersSpinner.addChangeListener(e -> updateTriggerMinUniqueUsers());
+        triggerMinMentionsPerUserSpinner.addChangeListener(e -> updateTriggerMinMentionsPerUser());
+        triggerTimeWindowSpinner.addChangeListener(e -> updateTriggerTimeWindow());
         triggerNotificationCheck.addActionListener(e -> updateTriggerNotification());
         triggerSoundCombo.addActionListener(e -> updateTriggerSound());
         defaultSoundCombo.addActionListener(e -> updateDefaultSound());
@@ -482,6 +518,9 @@ public class AutoReplySettings extends SettingsPanel {
         updateAllowList();
         updateBlockList();
         updateTriggerCooldown();
+        updateTriggerMinUniqueUsers();
+        updateTriggerMinMentionsPerUser();
+        updateTriggerTimeWindow();
         updateTriggerNotification();
         updateTriggerSound();
         updateDefaultSound();
@@ -638,6 +677,9 @@ public class AutoReplySettings extends SettingsPanel {
         patternTypeCombo.setSelectedItem(trigger.getPatternType());
         replyArea.setText(trigger.getReply());
         triggerCooldownSpinner.setValue(Long.valueOf(trigger.getCooldown()));
+        triggerMinUniqueUsersSpinner.setValue(Long.valueOf(trigger.getMinUniqueUsers()));
+        triggerMinMentionsPerUserSpinner.setValue(Long.valueOf(trigger.getMinMentionsPerUser()));
+        triggerTimeWindowSpinner.setValue(Long.valueOf(trigger.getTimeWindowSec()));
         overridesArea.setText(formatOverrides(trigger.getAuthorOverrides()));
         allowArea.setText(formatList(trigger.getAllowAuthors()));
         blockArea.setText(formatList(trigger.getBlockAuthors()));
@@ -653,6 +695,9 @@ public class AutoReplySettings extends SettingsPanel {
         patternTypeCombo.setSelectedItem(PatternType.PLAIN);
         replyArea.setText("");
         triggerCooldownSpinner.setValue(0L);
+        triggerMinUniqueUsersSpinner.setValue(0L);
+        triggerMinMentionsPerUserSpinner.setValue(0L);
+        triggerTimeWindowSpinner.setValue(0L);
         overridesArea.setText("");
         allowArea.setText("");
         blockArea.setText("");
@@ -668,6 +713,9 @@ public class AutoReplySettings extends SettingsPanel {
         patternTypeCombo.setEnabled(enabled);
         replyArea.setEnabled(enabled);
         triggerCooldownSpinner.setEnabled(enabled);
+        triggerMinUniqueUsersSpinner.setEnabled(enabled);
+        triggerMinMentionsPerUserSpinner.setEnabled(enabled);
+        triggerTimeWindowSpinner.setEnabled(enabled);
         overridesArea.setEnabled(enabled);
         allowArea.setEnabled(enabled);
         blockArea.setEnabled(enabled);
@@ -715,6 +763,39 @@ public class AutoReplySettings extends SettingsPanel {
         AutoReplyTrigger trigger = triggerList.getSelectedValue();
         if (trigger != null) {
             trigger.setCooldown(((Number) triggerCooldownSpinner.getValue()).longValue());
+        }
+    }
+
+    private void updateTriggerMinUniqueUsers() {
+        if (updatingTriggerForm) {
+            return;
+        }
+        AutoReplyTrigger trigger = triggerList.getSelectedValue();
+        if (trigger != null) {
+            trigger.setMinUniqueUsers(((Number) triggerMinUniqueUsersSpinner.getValue()).longValue());
+            updateValidationForTrigger(trigger);
+        }
+    }
+
+    private void updateTriggerMinMentionsPerUser() {
+        if (updatingTriggerForm) {
+            return;
+        }
+        AutoReplyTrigger trigger = triggerList.getSelectedValue();
+        if (trigger != null) {
+            trigger.setMinMentionsPerUser(((Number) triggerMinMentionsPerUserSpinner.getValue()).longValue());
+            updateValidationForTrigger(trigger);
+        }
+    }
+
+    private void updateTriggerTimeWindow() {
+        if (updatingTriggerForm) {
+            return;
+        }
+        AutoReplyTrigger trigger = triggerList.getSelectedValue();
+        if (trigger != null) {
+            trigger.setTimeWindowSec(((Number) triggerTimeWindowSpinner.getValue()).longValue());
+            updateValidationForTrigger(trigger);
         }
     }
 
@@ -844,9 +925,20 @@ public class AutoReplySettings extends SettingsPanel {
         }
         if (StringUtil.isNullOrEmpty(trigger.getPattern())) {
             validationLabel.setText(Language.getString("settings.autoReply.validation.pattern"));
-        } else {
-            validationLabel.setText(Language.getString("settings.autoReply.triggers.help"));
+            return;
         }
+        long minUsers = trigger.getMinUniqueUsers();
+        long minMentions = trigger.getMinMentionsPerUser();
+        long window = trigger.getTimeWindowSec();
+        if (minUsers < 0 || minMentions < 0 || window < 0) {
+            validationLabel.setText(Language.getString("settings.autoReply.validation.thresholds"));
+            return;
+        }
+        if ((minUsers > 0 || minMentions > 0) && window == 0) {
+            validationLabel.setText(Language.getString("settings.autoReply.validation.thresholds"));
+            return;
+        }
+        validationLabel.setText(Language.getString("settings.autoReply.triggers.help"));
     }
 
     private void updateActiveProfileCombo() {

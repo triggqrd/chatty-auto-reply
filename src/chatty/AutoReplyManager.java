@@ -213,13 +213,17 @@ public class AutoReplyManager {
         PatternType patternType = PatternType.fromString(normalize(map.get("patternType")));
         String reply = normalize(map.get("reply"));
         long cooldown = toLong(map.get("cooldown"), 0);
+        long minUniqueUsers = toLong(map.get("minUniqueUsers"), 0);
+        long minMentionsPerUser = toLong(map.get("minMentionsPerUser"), 0);
+        long timeWindowSec = toLong(map.get("timeWindowSec"), 0);
         boolean notify = toBoolean(map.get("notify"), false);
         String sound = normalize(map.get("sound"));
         Map<String, String> overrides = toStringMap(map.get("overrides"));
         List<String> allow = toStringList(map.get("allow"));
         List<String> block = toStringList(map.get("block"));
         return new AutoReplyTrigger(id, pattern, patternType, reply, cooldown,
-                overrides, allow, block, notify, sound);
+                overrides, allow, block, notify, sound,
+                minUniqueUsers, minMentionsPerUser, timeWindowSec);
     }
 
     private static String normalize(Object value) {
@@ -440,11 +444,15 @@ public class AutoReplyManager {
         private List<String> blockAuthors;
         private boolean notificationEnabled;
         private String sound;
+        private long minUniqueUsers;
+        private long minMentionsPerUser;
+        private long timeWindowSec;
 
         public AutoReplyTrigger(String id, String pattern, PatternType patternType, String reply,
                 long cooldown, Map<String, String> authorOverrides,
                 List<String> allowAuthors, List<String> blockAuthors,
-                boolean notificationEnabled, String sound) {
+                boolean notificationEnabled, String sound,
+                long minUniqueUsers, long minMentionsPerUser, long timeWindowSec) {
             this.id = Objects.requireNonNull(id);
             this.pattern = pattern == null ? "" : pattern;
             this.patternType = patternType == null ? PatternType.PLAIN : patternType;
@@ -455,21 +463,27 @@ public class AutoReplyManager {
             this.blockAuthors = new ArrayList<>(blockAuthors == null ? Collections.emptyList() : blockAuthors);
             this.notificationEnabled = notificationEnabled;
             this.sound = normalize(sound);
+            this.minUniqueUsers = Math.max(0, minUniqueUsers);
+            this.minMentionsPerUser = Math.max(0, minMentionsPerUser);
+            this.timeWindowSec = Math.max(0, timeWindowSec);
         }
 
         public static AutoReplyTrigger create() {
             return new AutoReplyTrigger(generateId(), "", PatternType.PLAIN, "", 0,
-                    new LinkedHashMap<>(), new ArrayList<>(), new ArrayList<>(), false, null);
+                    new LinkedHashMap<>(), new ArrayList<>(), new ArrayList<>(), false, null,
+                    0, 0, 0);
         }
 
         public AutoReplyTrigger copy() {
             return new AutoReplyTrigger(id, pattern, patternType, reply, cooldown,
-                    authorOverrides, allowAuthors, blockAuthors, notificationEnabled, sound);
+                    authorOverrides, allowAuthors, blockAuthors, notificationEnabled, sound,
+                    minUniqueUsers, minMentionsPerUser, timeWindowSec);
         }
 
         public AutoReplyTrigger copyWithNewId() {
             return new AutoReplyTrigger(generateId(), pattern, patternType, reply, cooldown,
-                    authorOverrides, allowAuthors, blockAuthors, notificationEnabled, sound);
+                    authorOverrides, allowAuthors, blockAuthors, notificationEnabled, sound,
+                    minUniqueUsers, minMentionsPerUser, timeWindowSec);
         }
 
         public Map<String, Object> toMap() {
@@ -479,6 +493,9 @@ public class AutoReplyManager {
             result.put("patternType", patternType.name());
             result.put("reply", reply);
             result.put("cooldown", cooldown);
+            result.put("minUniqueUsers", minUniqueUsers);
+            result.put("minMentionsPerUser", minMentionsPerUser);
+            result.put("timeWindowSec", timeWindowSec);
             if (!authorOverrides.isEmpty()) {
                 result.put("overrides", new LinkedHashMap<>(authorOverrides));
             }
@@ -569,6 +586,30 @@ public class AutoReplyManager {
 
         public void setSound(String sound) {
             this.sound = normalize(sound);
+        }
+
+        public long getMinUniqueUsers() {
+            return minUniqueUsers;
+        }
+
+        public void setMinUniqueUsers(long minUniqueUsers) {
+            this.minUniqueUsers = Math.max(0, minUniqueUsers);
+        }
+
+        public long getMinMentionsPerUser() {
+            return minMentionsPerUser;
+        }
+
+        public void setMinMentionsPerUser(long minMentionsPerUser) {
+            this.minMentionsPerUser = Math.max(0, minMentionsPerUser);
+        }
+
+        public long getTimeWindowSec() {
+            return timeWindowSec;
+        }
+
+        public void setTimeWindowSec(long timeWindowSec) {
+            this.timeWindowSec = Math.max(0, timeWindowSec);
         }
 
         @Override

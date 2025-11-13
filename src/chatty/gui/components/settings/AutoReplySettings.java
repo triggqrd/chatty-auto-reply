@@ -130,17 +130,19 @@ public class AutoReplySettings extends SettingsPanel {
         JPanel triggersPanel = createTriggersPanel();
 
         GridBagConstraints contentConstraints = new GridBagConstraints();
+        // Give the profiles panel a smaller default portion of horizontal space so triggers get more room
         contentConstraints.insets = new Insets(0, 0, 0, 5);
         contentConstraints.gridx = 0;
         contentConstraints.gridy = 0;
         contentConstraints.fill = GridBagConstraints.BOTH;
-        contentConstraints.weightx = 0.35;
+        // Favor triggers panel by default while still allowing resizing
+        contentConstraints.weightx = 0.22;
         contentConstraints.weighty = 1;
         content.add(profilesPanel, contentConstraints);
 
         contentConstraints.insets = new Insets(0, 5, 0, 0);
         contentConstraints.gridx = 1;
-        contentConstraints.weightx = 0.65;
+        contentConstraints.weightx = 0.78;
         content.add(triggersPanel, contentConstraints);
     }
 
@@ -152,7 +154,8 @@ public class AutoReplySettings extends SettingsPanel {
         profileList.setCellRenderer(new ProfileRenderer());
         profileList.setVisibleRowCount(10);
         JScrollPane scroll = new JScrollPane(profileList);
-        scroll.setPreferredSize(new Dimension(200, 220));
+        // Narrower default width but still resizable with the container
+        scroll.setPreferredSize(new Dimension(140, 220));
 
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.gridx = 0;
@@ -195,6 +198,10 @@ public class AutoReplySettings extends SettingsPanel {
         gbc.gridy = 2;
         panel.add(help, gbc);
 
+        // Prefer a modest minimum width so it doesn't dominate the layout
+        panel.setMinimumSize(new Dimension(120, 100));
+        panel.setPreferredSize(new Dimension(160, 300));
+
         return panel;
     }
 
@@ -205,8 +212,16 @@ public class AutoReplySettings extends SettingsPanel {
         triggerEditorsPanel.setLayout(new BoxLayout(triggerEditorsPanel, BoxLayout.Y_AXIS));
         triggerEditorsPanel.setOpaque(false);
         JScrollPane triggerScroll = new JScrollPane(triggerEditorsPanel);
-        triggerScroll.setPreferredSize(new Dimension(360, 260));
-        triggerScroll.getVerticalScrollBar().setUnitIncrement(18);
+        // Slightly larger preferred size for the triggers area; actual layout will favor this panel
+        triggerScroll.setPreferredSize(new Dimension(420, 260));
+        // Make mouse wheel scroll more responsive: larger unit increment and a sensible block increment
+        triggerScroll.getVerticalScrollBar().setUnitIncrement(24);
+        triggerScroll.getVerticalScrollBar().setBlockIncrement( Math.max(100, triggerScroll.getViewport().getViewRect().height - 20) );
+        // Update block increment on viewport resize so page-scroll behaves consistently
+        triggerScroll.getViewport().addChangeListener(e -> {
+            int h = triggerScroll.getViewport().getViewRect().height;
+            triggerScroll.getVerticalScrollBar().setBlockIncrement(Math.max(100, h - 20));
+        });
 
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.gridx = 0;
@@ -619,16 +634,18 @@ public class AutoReplySettings extends SettingsPanel {
             this.profile = profile;
             this.trigger = trigger;
 
-            setLayout(new GridBagLayout());
-            setAlignmentX(Component.LEFT_ALIGNMENT);
-            setOpaque(false);
-            setBorder(BorderFactory.createCompoundBorder(
+                setLayout(new GridBagLayout());
+                setAlignmentX(Component.LEFT_ALIGNMENT);
+                setOpaque(false);
+                // Slightly reduced padding to make each trigger editor more compact while preserving clarity
+                setBorder(BorderFactory.createCompoundBorder(
                     BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(70, 70, 70)),
-                    new EmptyBorder(8, 8, 8, 8)));
+                    new EmptyBorder(6, 6, 6, 6)));
 
-            GridBagConstraints gbc = new GridBagConstraints();
-            gbc.insets = new Insets(2, 2, 2, 2);
-            gbc.anchor = GridBagConstraints.WEST;
+                GridBagConstraints gbc = new GridBagConstraints();
+                // Tighter insets reduce wasted space between controls
+                gbc.insets = new Insets(1, 4, 2, 4);
+                gbc.anchor = GridBagConstraints.WEST;
 
             enabledCheck = new JCheckBox(Language.getString("settings.autoReply.trigger.enabledToggle"));
             enabledCheck.setSelected(trigger.isEnabled());
@@ -645,6 +662,8 @@ public class AutoReplySettings extends SettingsPanel {
             patternTypeCombo.setSelectedItem(trigger.getPatternType());
             patternTypeCombo.addActionListener(e -> trigger.setPatternType((PatternType) patternTypeCombo.getSelectedItem()));
             gbc.gridx = 1;
+            // Keep the pattern type combo compact so more space is available for the pattern field
+            patternTypeCombo.setPreferredSize(new Dimension(120, patternTypeCombo.getPreferredSize().height));
             add(patternTypeCombo, gbc);
 
             patternField = new JTextField(trigger.getPattern());
@@ -674,6 +693,7 @@ public class AutoReplySettings extends SettingsPanel {
             gbc.gridx = 0;
             gbc.gridy = 1;
             gbc.anchor = GridBagConstraints.NORTHWEST;
+            // Tighten vertical spacing for the reply label and field
             add(new JLabel(Language.getString("settings.autoReply.trigger.reply")), gbc);
 
             repliesArea = new JTextArea(trigger.getReply(), 3, 20);
@@ -685,6 +705,8 @@ public class AutoReplySettings extends SettingsPanel {
             }));
             JScrollPane repliesScroll = new JScrollPane(repliesArea);
             repliesScroll.setPreferredSize(new Dimension(220, 70));
+            // Make reply area scroll reasonably responsive as well
+            repliesScroll.getVerticalScrollBar().setUnitIncrement(16);
             gbc.gridx = 1;
             gbc.gridwidth = 4;
             gbc.weightx = 1;
@@ -799,7 +821,8 @@ public class AutoReplySettings extends SettingsPanel {
             panel.add(new JLabel(label), gbc);
             gbc.gridx = gridx + 1;
             gbc.fill = GridBagConstraints.HORIZONTAL;
-            spinner.setPreferredSize(new Dimension(110, spinner.getPreferredSize().height));
+            // Slightly narrower spinner so rows stay compact
+            spinner.setPreferredSize(new Dimension(92, spinner.getPreferredSize().height));
             panel.add(spinner, gbc);
         }
 

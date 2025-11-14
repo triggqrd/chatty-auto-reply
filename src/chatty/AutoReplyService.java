@@ -42,6 +42,13 @@ public class AutoReplyService implements AutoReplyManager.Listener {
     private static final Logger LOGGER = Logger.getLogger(AutoReplyService.class.getName());
 
     /**
+     * Listener interface for auto-reply events (e.g., for logging UI).
+     */
+    public interface Listener {
+        void autoReplySent(AutoReplyEvent event);
+    }
+
+    /**
      * Minimum global cooldown enforced across all rules (seconds).
      */
     private static final long COOLDOWN_SEC = 2L;
@@ -61,6 +68,7 @@ public class AutoReplyService implements AutoReplyManager.Listener {
     private long globalCooldownMillis = 0L;
     private long nextGlobalAvailable = 0L;
     private boolean enabled = true;
+    private Listener listener;
 
     public AutoReplyService(TwitchClient client, MainGui gui, AutoReplyManager manager) {
         this.client = Objects.requireNonNull(client);
@@ -68,6 +76,18 @@ public class AutoReplyService implements AutoReplyManager.Listener {
         this.manager = Objects.requireNonNull(manager);
         this.manager.addListener(this);
         updateConfig(manager.getConfig());
+    }
+
+    public void setListener(Listener listener) {
+        synchronized (lock) {
+            this.listener = listener;
+        }
+    }
+
+    public Listener getListener() {
+        synchronized (lock) {
+            return this.listener;
+        }
     }
 
     @Override
@@ -133,12 +153,12 @@ public class AutoReplyService implements AutoReplyManager.Listener {
                 continue;
             }
 
-            scheduleAutoReply(trigger, state, user.getChannel(), reply, now);
+            scheduleAutoReply(trigger, state, user.getChannel(), reply, user.getName(), now);
             break;
         }
     }
 
-    private void scheduleAutoReply(PreparedTrigger trigger, TriggerState state, String channel, String reply, long now) {
+    private void scheduleAutoReply(PreparedTrigger trigger, TriggerState state, String channel, String reply, String user, long now) {
         long delay = trigger.nextDelayMillis();
         long scheduledTime = now + delay;
         state.reset();
@@ -147,17 +167,18 @@ public class AutoReplyService implements AutoReplyManager.Listener {
         synchronized (lock) {
             nextGlobalAvailable = Math.max(nextGlobalAvailable, scheduledTime + globalCooldown);
         }
-        scheduler.schedule(() -> dispatchAutoReply(trigger, state, channel, reply, scheduledTime), delay, TimeUnit.MILLISECONDS);
+        scheduler.schedule(() -> dispatchAutoReply(trigger, state, channel, reply, user, now, scheduledTime), delay, TimeUnit.MILLISECONDS);
     }
 
-    private void dispatchAutoReply(PreparedTrigger trigger, TriggerState state, String channel, String reply, long scheduledTime) {
+    private void dispatchAutoReply(PreparedTrigger trigger, TriggerState state, String channel, String reply, String user, long matchedAtMillis, long scheduledTime) {
         if (!isTriggerActive(trigger.id, state)) {
             state.cancelPending();
             return;
         }
+        long sentAtMillis = System.currentTimeMillis();
         boolean sent = client.sendAutoReplyMessage(channel, reply);
         if (sent) {
-            handlePostSend(trigger, state, scheduledTime, channel, reply);
+            handlePostSend(trigger, state, scheduledTime, channel, reply, user, matchedAtMillis, sentAtMillis);
         }
         else {
             state.cancelPending();
@@ -171,7 +192,7 @@ public class AutoReplyService implements AutoReplyManager.Listener {
         }
     }
 
-    private void handlePostSend(PreparedTrigger trigger, TriggerState state, long scheduledTime, String channel, String reply) {
+    private void handlePostSend(PreparedTrigger trigger, TriggerState state, long scheduledTime, String channel, String reply, String user, long matchedAtMillis, long sentAtMillis) {
         synchronized (lock) {
             state.reset();
             state.markCooldown(scheduledTime + trigger.cooldownMillis);
@@ -184,6 +205,35 @@ public class AutoReplyService implements AutoReplyManager.Listener {
         }
         printAutoReplyMessage(channel, reply);
         playSoundIfConfigured(trigger.resolveSound(defaultSound), trigger.id);
+
+        // Emit event for logging
+        emitAutoReplyEvent(trigger, channel, reply, user, matchedAtMillis, sentAtMillis);
+    }
+
+    private void emitAutoReplyEvent(PreparedTrigger trigger, String channel, String reply, String user, long matchedAtMillis, long sentAtMillis) {
+        Listener currentListener;
+        synchronized (lock) {
+            currentListener = listener;
+        }
+        if (currentListener != null) {
+            try {
+                AutoReplyProfile profile = resolveActiveProfile(manager.getConfig());
+                String profileName = profile != null ? profile.getName() : "default";
+                AutoReplyEvent event = new AutoReplyEvent(
+                        matchedAtMillis,
+                        sentAtMillis,
+                        profileName,
+                        trigger.getPatternDisplay(),
+                        channel,
+                        user != null ? user : "",
+                        reply
+                );
+                currentListener.autoReplySent(event);
+            }
+            catch (Exception ex) {
+                LOGGER.log(Level.WARNING, "Error emitting auto-reply event", ex);
+            }
+        }
     }
 
     private void printAutoReplyMessage(String channel, String reply) {
@@ -444,6 +494,10 @@ public class AutoReplyService implements AutoReplyManager.Listener {
 
         private String notificationBody() {
             return String.format("Triggered: %s", patternDisplay);
+        }
+
+        private String getPatternDisplay() {
+            return patternDisplay;
         }
 
         private String resolveSound(String defaultSound) {

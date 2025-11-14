@@ -398,6 +398,9 @@ public class TwitchClient {
         sendMessageManager = new SendMessageManager(api, g);
         autoReplyService = new AutoReplyService(this, g, g.getAutoReplyManager());
         
+        // Wire up auto-reply logging UI
+        g.registerAutoReplyLogListener();
+        
         timerCommand = new TimerCommand(settings, new TimerCommand.TimerAction() {
             @Override
             public void performAction(String command, String chan, Parameters parameters, Set<TimerCommand.Option> options) {
@@ -3940,10 +3943,12 @@ public class TwitchClient {
         }
         return result;
     }
-    
-    private class ChannelStateUpdater implements ChannelStateListener {
 
-        @Override
+    public AutoReplyService getAutoReplyService() {
+        return autoReplyService;
+    }
+
+    private class ChannelStateUpdater implements ChannelStateListener {        @Override
         public void channelStateUpdated(ChannelState state) {
             g.updateState(true);
             g.channelStateUpdated(state);

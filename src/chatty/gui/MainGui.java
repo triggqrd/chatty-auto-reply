@@ -6,6 +6,7 @@ import chatty.gui.laf.LaF;
 import chatty.util.colors.HtmlColors;
 import chatty.Addressbook;
 import chatty.AutoReplyManager;
+import chatty.AutoReplyService;
 import chatty.ChannelState;
 import chatty.gui.components.textpane.UserMessage;
 import chatty.gui.components.DebugWindow;
@@ -45,6 +46,7 @@ import chatty.gui.colors.MsgColorManager;
 import chatty.gui.components.AddressbookDialog;
 import chatty.gui.components.AutoReplyStatusIndicator;
 import chatty.gui.components.AutoModDialog;
+import chatty.gui.components.AutoReplyLogDialog;
 import chatty.gui.components.EmotesDialog;
 import chatty.gui.components.ErrorMessage;
 import chatty.gui.components.eventlog.EventLog;
@@ -176,6 +178,7 @@ public class MainGui extends JFrame implements Runnable {
     private StreamChat streamChat;
     private ModerationLog moderationLog;
     private AutoModDialog autoModDialog;
+    private AutoReplyLogDialog autoReplyLogDialog;
     private EventLog eventLog;
     
     // Helpers
@@ -326,6 +329,7 @@ public class MainGui extends JFrame implements Runnable {
         
         moderationLog = new ModerationLog(this, dockedDialogs);
         autoModDialog = new AutoModDialog(this, client.api, client, dockedDialogs);
+        autoReplyLogDialog = new AutoReplyLogDialog(this, dockedDialogs);
         eventLog = new EventLog(this);
         EventLog.setMain(eventLog);
         
@@ -375,6 +379,7 @@ public class MainGui extends JFrame implements Runnable {
         windowStateManager.addWindow(streamChat, "streamChat", true, true);
         windowStateManager.addWindow(userInfoDialog.getDummyWindow(), "userInfo", true, false);
         windowStateManager.addWindow(autoModDialog, "autoMod", true, true);
+        windowStateManager.addWindow(autoReplyLogDialog, "autoReplyLog", true, true);
         windowStateManager.addWindow(eventLog, "eventLog", true, true);
         
         if (System.getProperty("java.version").equals("1.8.0_161")
@@ -388,8 +393,18 @@ public class MainGui extends JFrame implements Runnable {
         TransparencyManager.init(channels);
         
         guiCreated = true;
+        
+        // Wire up auto-reply logging (will be called once AutoReplyService is created)
+        registerAutoReplyLogListener();
     }
-    
+
+    public void registerAutoReplyLogListener() {
+        AutoReplyService service = client.getAutoReplyService();
+        if (service != null && autoReplyLogDialog != null) {
+            service.setListener(autoReplyLogDialog);
+        }
+    }
+
     public void setWindowAttached(Window window, boolean attached) {
         windowStateManager.setWindowAttached(window, attached);
     }

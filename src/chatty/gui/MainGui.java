@@ -328,10 +328,15 @@ public class MainGui extends JFrame implements Runnable {
         StreamChatContextMenu.client = client;
         
         moderationLog = new ModerationLog(this, dockedDialogs);
-        autoModDialog = new AutoModDialog(this, client.api, client, dockedDialogs);
-        autoReplyLogDialog = new AutoReplyLogDialog(this, dockedDialogs);
-        eventLog = new EventLog(this);
-        EventLog.setMain(eventLog);
+autoModDialog = new AutoModDialog(this, client.api, client, dockedDialogs);
+autoReplyLogDialog = new AutoReplyLogDialog(this, dockedDialogs);
+
+// Show the Auto Reply Log docked panel by default
+autoReplyLogDialog.setVisible(true);
+
+eventLog = new EventLog(this);
+EventLog.setMain(eventLog);
+
         
         //this.getContentPane().setBackground(new Color(0,0,0,0));
 

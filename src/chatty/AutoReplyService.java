@@ -4,6 +4,7 @@ import chatty.AutoReplyManager.AutoReplyConfig;
 import chatty.AutoReplyManager.AutoReplyProfile;
 import chatty.AutoReplyManager.AutoReplyTrigger;
 import chatty.AutoReplyManager.PatternType;
+import chatty.AutoReplyManager.ReplySelection;
 import chatty.Chatty;
 import chatty.Chatty.PathType;
 import chatty.gui.MainGui;
@@ -147,7 +148,7 @@ public class AutoReplyService implements AutoReplyManager.Listener {
                 continue;
             }
 
-            String reply = trigger.chooseReply(user.getName());
+            String reply = trigger.chooseReply(state);
             if (StringUtil.isNullOrEmpty(reply)) {
                 state.reset();
                 continue;
@@ -198,6 +199,7 @@ public class AutoReplyService implements AutoReplyManager.Listener {
             state.markCooldown(scheduledTime + trigger.cooldownMillis);
             long cooldown = Math.max(globalCooldownMillis, 0L);
             nextGlobalAvailable = Math.max(nextGlobalAvailable, scheduledTime + cooldown);
+            trigger.recordSuccessfulSend(state);
         }
         if (trigger.shouldNotify(defaultNotification)) {
             gui.printSystem(trigger.buildNotificationMessage());
@@ -357,6 +359,8 @@ public class AutoReplyService implements AutoReplyManager.Listener {
         private final long minDelayMillis;
         private final long maxDelayMillis;
         private final TriggerState state;
+        private final ReplySelection replySelection;
+        private final boolean loopReplies;
 
         private PreparedTrigger(String id,
                                 Pattern regexPattern,
@@ -372,7 +376,9 @@ public class AutoReplyService implements AutoReplyManager.Listener {
                                 long requiredMentionsPerUser,
                                 long minDelayMillis,
                                 long maxDelayMillis,
-                                TriggerState state) {
+                                TriggerState state,
+                                ReplySelection replySelection,
+                                boolean loopReplies) {
             this.id = id;
             this.regexPattern = regexPattern;
             this.plainPattern = plainPattern;
@@ -388,6 +394,8 @@ public class AutoReplyService implements AutoReplyManager.Listener {
             this.minDelayMillis = minDelayMillis;
             this.maxDelayMillis = maxDelayMillis;
             this.state = state;
+            this.replySelection = replySelection == null ? ReplySelection.RANDOM : replySelection;
+            this.loopReplies = loopReplies;
         }
 
         private static PreparedTrigger create(AutoReplyTrigger trigger, TriggerState previousState) {
@@ -427,7 +435,8 @@ public class AutoReplyService implements AutoReplyManager.Listener {
 
             return new PreparedTrigger(trigger.getId(), regex, plain, replies, allow,
                     trigger.isNotificationEnabled(), trigger.getSound(), trigger.getPattern(), cooldown,
-                    timeWindow, requiredUsers, requiredMentions, minDelay, maxDelay, state);
+                    timeWindow, requiredUsers, requiredMentions, minDelay, maxDelay, state,
+                    trigger.getReplySelection(), trigger.isLoopReplies());
         }
 
         private static Set<String> toLowerCaseSet(Collection<String> values) {
@@ -475,13 +484,23 @@ public class AutoReplyService implements AutoReplyManager.Listener {
             return state != null ? state : this.state;
         }
 
-        private String chooseReply(String author) {
+        private String chooseReply(TriggerState state) {
             List<String> pool = replies;
             if (pool.isEmpty()) {
                 return null;
             }
+            if (replySelection == ReplySelection.SEQUENTIAL) {
+                int index = state.getCurrentSequentialIndex(pool.size());
+                return pool.get(Math.min(index, pool.size() - 1));
+            }
             int index = ThreadLocalRandom.current().nextInt(pool.size());
             return pool.get(index);
+        }
+
+        private void recordSuccessfulSend(TriggerState state) {
+            if (replySelection == ReplySelection.SEQUENTIAL) {
+                state.advanceSequentialIndex(replies.size(), loopReplies);
+            }
         }
 
         private boolean shouldNotify(boolean defaultNotify) {
@@ -557,6 +576,11 @@ public class AutoReplyService implements AutoReplyManager.Listener {
         private final Map<String, Deque<MatchEntry>> matches = new HashMap<>();
         private long nextAvailableTime = 0L;
         private boolean pending;
+        /**
+         * Tracks sequential reply progression. This is kept in memory only and resets when
+         * the trigger state is recreated (e.g., when the app restarts or the profile is reloaded).
+         */
+        private int sequentialIndex;
 
         private void recordMatch(String user, long timestamp, long requiredMentions, long windowMillis,
                 boolean recipientMention, boolean directMention) {
@@ -602,6 +626,33 @@ public class AutoReplyService implements AutoReplyManager.Listener {
 
         private void reset() {
             matches.clear();
+        }
+
+        private int getCurrentSequentialIndex(int totalReplies) {
+            if (totalReplies <= 0) {
+                sequentialIndex = 0;
+                return 0;
+            }
+            if (sequentialIndex >= totalReplies) {
+                sequentialIndex = totalReplies - 1;
+            }
+            return Math.max(0, sequentialIndex);
+        }
+
+        private void advanceSequentialIndex(int totalReplies, boolean loop) {
+            if (totalReplies <= 0) {
+                sequentialIndex = 0;
+                return;
+            }
+            if (sequentialIndex < totalReplies - 1) {
+                sequentialIndex++;
+            }
+            else if (loop) {
+                sequentialIndex = 0;
+            }
+            else {
+                sequentialIndex = totalReplies - 1;
+            }
         }
 
         private void cancelPending() {

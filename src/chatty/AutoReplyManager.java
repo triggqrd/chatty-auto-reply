@@ -125,6 +125,16 @@ public class AutoReplyManager {
         if (StringUtil.isNullOrEmpty(active)) {
             active = "default";
         }
+        boolean activeFound = false;
+        for (AutoReplyProfile profile : config.profiles) {
+            if (profile.getId().equals(active)) {
+                activeFound = true;
+                break;
+            }
+        }
+        if (!activeFound) {
+            active = config.profiles.isEmpty() ? "default" : config.profiles.get(0).getId();
+        }
         config.activeProfileId = active;
         config.globalCooldown = settings.getLong(SETTING_GLOBAL_COOLDOWN);
         config.selfIgnore = settings.getBoolean(SETTING_SELF_IGNORE);
@@ -227,10 +237,13 @@ public class AutoReplyManager {
         boolean enabled = toBoolean(map.get("enabled"), true);
         long minDelayMs = toLong(map.get("minDelayMs"), 0);
         long maxDelayMs = toLong(map.get("maxDelayMs"), Math.max(0, minDelayMs));
+        ReplySelection replySelection = ReplySelection.fromString(normalize(map.get("replySelection")));
+        boolean loopReplies = toBoolean(map.get("replyLoop"), false);
         return new AutoReplyTrigger(id, pattern, patternType, reply, cooldown,
                 allow, notify, sound,
                 minUniqueUsers, minMentionsPerUser, timeWindowSec,
-                enabled, minDelayMs, maxDelayMs);
+                enabled, minDelayMs, maxDelayMs,
+                replySelection, loopReplies);
     }
 
     private static String normalize(Object value) {
@@ -465,13 +478,16 @@ public class AutoReplyManager {
         private boolean enabled;
         private long minDelayMillis;
         private long maxDelayMillis;
+        private ReplySelection replySelection;
+        private boolean loopReplies;
 
         public AutoReplyTrigger(String id, String pattern, PatternType patternType, String reply,
                 long cooldown,
                 List<String> allowAuthors,
                 boolean notificationEnabled, String sound,
                 long minUniqueUsers, long minMentionsPerUser, long timeWindowSec,
-                boolean enabled, long minDelayMillis, long maxDelayMillis) {
+                boolean enabled, long minDelayMillis, long maxDelayMillis,
+                ReplySelection replySelection, boolean loopReplies) {
             this.id = Objects.requireNonNull(id);
             this.pattern = pattern == null ? "" : pattern;
             this.patternType = patternType == null ? PatternType.PLAIN : patternType;
@@ -486,27 +502,32 @@ public class AutoReplyManager {
             this.enabled = enabled;
             this.minDelayMillis = Math.max(0, minDelayMillis);
             this.maxDelayMillis = Math.max(this.minDelayMillis, maxDelayMillis);
+            this.replySelection = replySelection == null ? ReplySelection.RANDOM : replySelection;
+            this.loopReplies = loopReplies;
         }
 
         public static AutoReplyTrigger create() {
             return new AutoReplyTrigger(generateId(), "", PatternType.PLAIN, "", 0,
                     new ArrayList<>(), false, null,
                     0, 0, 0,
-                    true, 0, 0);
+                    true, 0, 0,
+                    ReplySelection.RANDOM, false);
         }
 
         public AutoReplyTrigger copy() {
             return new AutoReplyTrigger(id, pattern, patternType, reply, cooldown,
                     allowAuthors, notificationEnabled, sound,
                     minUniqueUsers, minMentionsPerUser, timeWindowSec,
-                    enabled, minDelayMillis, maxDelayMillis);
+                    enabled, minDelayMillis, maxDelayMillis,
+                    replySelection, loopReplies);
         }
 
         public AutoReplyTrigger copyWithNewId() {
             return new AutoReplyTrigger(generateId(), pattern, patternType, reply, cooldown,
                     allowAuthors, notificationEnabled, sound,
                     minUniqueUsers, minMentionsPerUser, timeWindowSec,
-                    enabled, minDelayMillis, maxDelayMillis);
+                    enabled, minDelayMillis, maxDelayMillis,
+                    replySelection, loopReplies);
         }
 
         public Map<String, Object> toMap() {
@@ -530,6 +551,8 @@ public class AutoReplyManager {
             result.put("enabled", enabled);
             result.put("minDelayMs", minDelayMillis);
             result.put("maxDelayMs", maxDelayMillis);
+            result.put("replySelection", replySelection.name());
+            result.put("replyLoop", loopReplies);
             return result;
         }
 
@@ -644,6 +667,22 @@ public class AutoReplyManager {
             this.maxDelayMillis = Math.max(this.minDelayMillis, maxDelayMillis);
         }
 
+        public ReplySelection getReplySelection() {
+            return replySelection;
+        }
+
+        public void setReplySelection(ReplySelection replySelection) {
+            this.replySelection = replySelection == null ? ReplySelection.RANDOM : replySelection;
+        }
+
+        public boolean isLoopReplies() {
+            return loopReplies;
+        }
+
+        public void setLoopReplies(boolean loopReplies) {
+            this.loopReplies = loopReplies;
+        }
+
         @Override
         public String toString() {
             return pattern;
@@ -668,6 +707,23 @@ public class AutoReplyManager {
 
         public String getLabelKey() {
             return "settings.autoReply.patternType." + name();
+        }
+    }
+
+    public enum ReplySelection {
+        RANDOM,
+        SEQUENTIAL;
+
+        public static ReplySelection fromString(String input) {
+            if (StringUtil.isNullOrEmpty(input)) {
+                return RANDOM;
+            }
+            for (ReplySelection value : values()) {
+                if (value.name().equalsIgnoreCase(input)) {
+                    return value;
+                }
+            }
+            return RANDOM;
         }
     }
 }

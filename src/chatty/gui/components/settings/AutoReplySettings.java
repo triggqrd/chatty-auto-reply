@@ -5,6 +5,7 @@ import chatty.AutoReplyManager.AutoReplyConfig;
 import chatty.AutoReplyManager.AutoReplyProfile;
 import chatty.AutoReplyManager.AutoReplyTrigger;
 import chatty.AutoReplyManager.PatternType;
+import chatty.AutoReplyManager.ReplySelection;
 import chatty.gui.GuiUtil;
 import chatty.lang.Language;
 import chatty.util.StringUtil;
@@ -15,6 +16,7 @@ import java.awt.Font;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
+import java.awt.event.ActionListener;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -24,6 +26,7 @@ import javax.swing.DefaultComboBoxModel;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.DefaultListModel;
 import javax.swing.JButton;
+import javax.swing.ButtonGroup;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
@@ -32,6 +35,7 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
+import javax.swing.JRadioButton;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.ListSelectionModel;
@@ -213,7 +217,8 @@ public class AutoReplySettings extends SettingsPanel {
         triggerEditorsPanel.setOpaque(false);
         JScrollPane triggerScroll = new JScrollPane(triggerEditorsPanel);
         // Slightly larger preferred size for the triggers area; actual layout will favor this panel
-        triggerScroll.setPreferredSize(new Dimension(420, 260));
+        triggerScroll.setPreferredSize(new Dimension(520, 260));
+        triggerScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         // Make mouse wheel scroll more responsive: larger unit increment and a sensible block increment
         triggerScroll.getVerticalScrollBar().setUnitIncrement(24);
         triggerScroll.getVerticalScrollBar().setBlockIncrement( Math.max(100, triggerScroll.getViewport().getViewRect().height - 20) );
@@ -538,8 +543,15 @@ public class AutoReplySettings extends SettingsPanel {
                 return;
             }
         }
-        activeProfileCombo.setSelectedIndex(0);
-        config.setActiveProfileId("default");
+        if (activeProfileCombo.getItemCount() > 1) {
+            ActiveProfileItem fallback = activeProfileCombo.getItemAt(1);
+            activeProfileCombo.setSelectedIndex(1);
+            config.setActiveProfileId(fallback.id);
+        }
+        else {
+            activeProfileCombo.setSelectedIndex(0);
+            config.setActiveProfileId("default");
+        }
         profileList.repaint();
     }
 
@@ -629,6 +641,9 @@ public class AutoReplySettings extends SettingsPanel {
         private final JComboBox<String> soundCombo;
         private final JCheckBox enabledCheck;
         private final JCheckBox notifyCheck;
+        private final JRadioButton randomReplyMode;
+        private final JRadioButton sequentialReplyMode;
+        private final JCheckBox loopRepliesCheck;
 
         TriggerEditorPanel(AutoReplyProfile profile, AutoReplyTrigger trigger) {
             this.profile = profile;
@@ -644,7 +659,7 @@ public class AutoReplySettings extends SettingsPanel {
 
                 GridBagConstraints gbc = new GridBagConstraints();
                 // Tighter insets reduce wasted space between controls
-                gbc.insets = new Insets(1, 4, 2, 4);
+                gbc.insets = new Insets(2, 3, 2, 3);
                 gbc.anchor = GridBagConstraints.WEST;
 
             enabledCheck = new JCheckBox(Language.getString("settings.autoReply.trigger.enabledToggle"));
@@ -713,6 +728,56 @@ public class AutoReplySettings extends SettingsPanel {
             gbc.fill = GridBagConstraints.BOTH;
             add(repliesScroll, gbc);
 
+            ButtonGroup replyModeGroup = new ButtonGroup();
+            randomReplyMode = new JRadioButton(Language.getString("settings.autoReply.trigger.replyMode.random"));
+            sequentialReplyMode = new JRadioButton(Language.getString("settings.autoReply.trigger.replyMode.sequential"));
+            loopRepliesCheck = new JCheckBox(Language.getString("settings.autoReply.trigger.replyLoop"));
+            randomReplyMode.setOpaque(false);
+            sequentialReplyMode.setOpaque(false);
+            loopRepliesCheck.setOpaque(false);
+            replyModeGroup.add(randomReplyMode);
+            replyModeGroup.add(sequentialReplyMode);
+            if (trigger.getReplySelection() == ReplySelection.SEQUENTIAL) {
+                sequentialReplyMode.setSelected(true);
+            }
+            else {
+                randomReplyMode.setSelected(true);
+            }
+            loopRepliesCheck.setSelected(trigger.isLoopReplies());
+            loopRepliesCheck.addActionListener(e -> trigger.setLoopReplies(loopRepliesCheck.isSelected()));
+            ActionListener replyModeListener = e -> {
+                trigger.setReplySelection(sequentialReplyMode.isSelected()
+                        ? ReplySelection.SEQUENTIAL
+                        : ReplySelection.RANDOM);
+                loopRepliesCheck.setEnabled(sequentialReplyMode.isSelected());
+            };
+            randomReplyMode.addActionListener(replyModeListener);
+            sequentialReplyMode.addActionListener(replyModeListener);
+            loopRepliesCheck.setEnabled(sequentialReplyMode.isSelected());
+
+            JPanel replyModeRow = new JPanel(new GridBagLayout());
+            replyModeRow.setOpaque(false);
+            GridBagConstraints modeGbc = new GridBagConstraints();
+            modeGbc.insets = new Insets(0, 4, 0, 4);
+            modeGbc.gridy = 0;
+            modeGbc.anchor = GridBagConstraints.WEST;
+            modeGbc.gridx = 0;
+            replyModeRow.add(new JLabel(Language.getString("settings.autoReply.trigger.replyMode")), modeGbc);
+            modeGbc.gridx = 1;
+            replyModeRow.add(randomReplyMode, modeGbc);
+            modeGbc.gridx = 2;
+            replyModeRow.add(sequentialReplyMode, modeGbc);
+            modeGbc.gridx = 3;
+            modeGbc.weightx = 1;
+            replyModeRow.add(loopRepliesCheck, modeGbc);
+
+            gbc.gridy = 2;
+            gbc.gridx = 0;
+            gbc.gridwidth = 5;
+            gbc.weightx = 1;
+            gbc.fill = GridBagConstraints.HORIZONTAL;
+            add(replyModeRow, gbc);
+
             long minDelay = trigger.getMinDelayMillis();
             long maxDelay = Math.max(trigger.getMaxDelayMillis(), minDelay);
             SpinnerNumberModel minDelayModel = new SpinnerNumberModel(minDelay, 0L, 3600000L, 100L);
@@ -743,7 +808,7 @@ public class AutoReplySettings extends SettingsPanel {
             addLabeledSpinner(timingRow, Language.getString("settings.autoReply.trigger.maxDelay"), maxDelaySpinner, 2);
             addLabeledSpinner(timingRow, Language.getString("settings.autoReply.trigger.cooldown"), cooldownSpinner, 4);
 
-            gbc.gridy = 2;
+            gbc.gridy = 3;
             gbc.gridx = 0;
             gbc.gridwidth = 5;
             gbc.weightx = 1;
@@ -775,10 +840,10 @@ public class AutoReplySettings extends SettingsPanel {
             addLabeledSpinner(thresholdRow, Language.getString("settings.autoReply.trigger.minMentionsPerUser"), minMentionsSpinner, 2);
             addLabeledSpinner(thresholdRow, Language.getString("settings.autoReply.trigger.timeWindow"), timeWindowSpinner, 4);
 
-            gbc.gridy = 3;
+            gbc.gridy = 4;
             add(thresholdRow, gbc);
 
-            gbc.gridy = 4;
+            gbc.gridy = 5;
             gbc.gridwidth = 1;
             gbc.gridx = 0;
             gbc.anchor = GridBagConstraints.WEST;
@@ -814,13 +879,14 @@ public class AutoReplySettings extends SettingsPanel {
 
         private void addLabeledSpinner(JPanel panel, String label, JSpinner spinner, int gridx) {
             GridBagConstraints gbc = new GridBagConstraints();
-            gbc.insets = new Insets(0, 2, 0, 2);
+            gbc.insets = new Insets(0, 4, 0, 4);
             gbc.gridy = 0;
             gbc.gridx = gridx;
             gbc.anchor = GridBagConstraints.WEST;
             panel.add(new JLabel(label), gbc);
             gbc.gridx = gridx + 1;
             gbc.fill = GridBagConstraints.HORIZONTAL;
+            gbc.weightx = 1;
             // Slightly narrower spinner so rows stay compact
             spinner.setPreferredSize(new Dimension(92, spinner.getPreferredSize().height));
             panel.add(spinner, gbc);

@@ -58,6 +58,7 @@ dependencies {
     implementation 'net.java.dev.jna:jna:5.12.1'
     implementation 'net.java.dev.jna:jna-platform:5.12.1'
     implementation 'com.formdev:flatlaf:3.2.5'
+    implementation 'org.slf4j:slf4j-jdk14:1.7.36'
 
     testImplementation 'junit:junit:4.12'
 }

@@ -58,6 +58,7 @@ public final class Channel extends JPanel {
     }
     
     private static final int DIVIDER_SIZE = 5;
+    private static final int LOG_BUTTON_MARGIN = 6;
     
     private final JPanel inputPanel;
     private final ChannelEditBox input;
@@ -159,16 +160,7 @@ public final class Channel extends JPanel {
             public void doLayout() {
                 Dimension size = getSize();
                 logPane.setBounds(0, 0, size.width, size.height);
-                Dimension buttonSize = logToggleButton.getPreferredSize();
-                int margin = 6;
-                int dividerLocation = logPane.getDividerLocation();
-                int sidebarX = dividerLocation + logPane.getDividerSize();
-                if (sidebarX <= 0 || sidebarX > size.width) {
-                    sidebarX = size.width - buttonSize.width - margin;
-                }
-                int x = Math.min(Math.max(sidebarX + margin, margin), size.width - buttonSize.width - margin);
-                int y = margin;
-                logToggleButton.setBounds(x, y, buttonSize.width, buttonSize.height);
+                updateLogToggleButtonPosition(size);
             }
         };
         logPaneLayer.setOpaque(false);
@@ -181,6 +173,10 @@ public final class Channel extends JPanel {
                 logPaneLayer.revalidate();
                 logPaneLayer.repaint();
             }
+        });
+        logPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, evt -> {
+            logPaneLayer.revalidate();
+            logPaneLayer.repaint();
         });
 
         // Add components
@@ -652,6 +648,20 @@ public final class Channel extends JPanel {
         logPaneLayer.revalidate();
         logPaneLayer.repaint();
         logSidebarVisible = !logSidebarVisible;
+    }
+
+    private void updateLogToggleButtonPosition(Dimension containerSize) {
+        Dimension buttonSize = logToggleButton.getPreferredSize();
+        int sidebarStart = logPane.getDividerLocation() + logPane.getDividerSize();
+        int x = sidebarStart - buttonSize.width - LOG_BUTTON_MARGIN;
+        int maxX = containerSize.width - buttonSize.width - LOG_BUTTON_MARGIN;
+        x = Math.max(LOG_BUTTON_MARGIN, Math.min(x, maxX));
+
+        int y = (containerSize.height - buttonSize.height) / 2;
+        int maxY = containerSize.height - buttonSize.height - LOG_BUTTON_MARGIN;
+        y = Math.max(LOG_BUTTON_MARGIN, Math.min(y, maxY));
+
+        logToggleButton.setBounds(x, y, buttonSize.width, buttonSize.height);
     }
     
     public void selectPreviousUser() {

@@ -134,6 +134,10 @@ public final class Channel extends JPanel {
         JPanel statusPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
         statusPanel.setOpaque(false);
         statusPanel.add(statusIndicator);
+        JButton toggleLogButton = new JButton("Toggle Log Sidebar");
+        toggleLogButton.setMargin(new Insets(8, 12, 8, 12));
+        toggleLogButton.addActionListener(e -> toggleLogSidebar());
+        statusPanel.add(toggleLogButton);
         inputPanel.add(statusPanel, BorderLayout.NORTH);
         main.configureAutoReplyIndicator(statusIndicator);
         inputPanel.add(input, BorderLayout.CENTER);

@@ -136,8 +136,15 @@ public final class Channel extends JPanel {
             openModPanel();
         });
         
+        AutoReplyLogSidebar logSidebar = new AutoReplyLogSidebar(main.getAutoReplyLogStore());
+        JSplitPane logPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, mainPane, logSidebar);
+        logPane.setResizeWeight(1);
+        logPane.setDividerSize(DIVIDER_SIZE);
+        logPane.setOneTouchExpandable(true);
+        logPane.setDividerLocation(0.82);
+
         // Add components
-        add(mainPane, BorderLayout.CENTER);
+        add(logPane, BorderLayout.CENTER);
         add(inputPanel, BorderLayout.SOUTH);
     }
     

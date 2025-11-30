@@ -677,6 +677,7 @@ public class SettingsManager {
         settings.addBoolean("autoReplyDefaultNotification", false);
         settings.addString("autoReplyDefaultSound", "");
         settings.addBoolean("autoReplyEnabled", true);
+        settings.addList("autoReplyLogEntries", new ArrayList(), Setting.MAP);
 
         // Ignore
         settings.addList("ignore", new ArrayList(), Setting.STRING);

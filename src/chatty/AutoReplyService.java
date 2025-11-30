@@ -23,6 +23,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
@@ -69,7 +70,7 @@ public class AutoReplyService implements AutoReplyManager.Listener {
     private long globalCooldownMillis = 0L;
     private long nextGlobalAvailable = 0L;
     private boolean enabled = true;
-    private Listener listener;
+    private final List<Listener> listeners = new CopyOnWriteArrayList<>();
 
     public AutoReplyService(TwitchClient client, MainGui gui, AutoReplyManager manager) {
         this.client = Objects.requireNonNull(client);
@@ -79,16 +80,19 @@ public class AutoReplyService implements AutoReplyManager.Listener {
         updateConfig(manager.getConfig());
     }
 
-    public void setListener(Listener listener) {
-        synchronized (lock) {
-            this.listener = listener;
+    public void addListener(Listener listener) {
+        if (listener != null) {
+            listeners.add(listener);
         }
     }
 
-    public Listener getListener() {
-        synchronized (lock) {
-            return this.listener;
-        }
+    public void removeListener(Listener listener) {
+        listeners.remove(listener);
+    }
+
+    public void setListener(Listener listener) {
+        listeners.clear();
+        addListener(listener);
     }
 
     @Override
@@ -213,11 +217,7 @@ public class AutoReplyService implements AutoReplyManager.Listener {
     }
 
     private void emitAutoReplyEvent(PreparedTrigger trigger, String channel, String reply, String user, long matchedAtMillis, long sentAtMillis) {
-        Listener currentListener;
-        synchronized (lock) {
-            currentListener = listener;
-        }
-        if (currentListener != null) {
+        for (Listener listener : listeners) {
             try {
                 AutoReplyProfile profile = resolveActiveProfile(manager.getConfig());
                 String profileName = profile != null ? profile.getName() : "default";
@@ -230,7 +230,7 @@ public class AutoReplyService implements AutoReplyManager.Listener {
                         user != null ? user : "",
                         reply
                 );
-                currentListener.autoReplySent(event);
+                listener.autoReplySent(event);
             }
             catch (Exception ex) {
                 LOGGER.log(Level.WARNING, "Error emitting auto-reply event", ex);

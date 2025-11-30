@@ -39,14 +39,14 @@ public class AutoReplyLogStore implements AutoReplyService.Listener {
     private static final DateTimeFormatter DATE_HEADER_FORMATTER = DateTimeFormatter.ofPattern("EEEE, MMMM d, uuuu");
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
     private static final String LOG_DIR_NAME = "auto-reply";
-    private static final String DEFAULT_CHANNEL_FILENAME = "general";
+    private static final String LOG_FILE_NAME = "auto-reply-log.txt";
 
     private static final int MAX_ENTRIES = 400;
 
     private final Settings settings;
     private final List<AutoReplyLogEntry> entries = new ArrayList<>();
     private final List<Listener> listeners = new CopyOnWriteArrayList<>();
-    private final Map<String, LocalDate> lastWrittenDateByChannel = new LinkedHashMap<>();
+    private LocalDate lastWrittenDate;
 
     public AutoReplyLogStore(Settings settings) {
         this.settings = Objects.requireNonNull(settings);
@@ -77,6 +77,7 @@ public class AutoReplyLogStore implements AutoReplyService.Listener {
 
     public void clear() {
         entries.clear();
+        lastWrittenDate = null;
         persist();
         notifyListeners(null);
     }
@@ -121,9 +122,14 @@ public class AutoReplyLogStore implements AutoReplyService.Listener {
     }
 
     private void rebuildLastWrittenDates() {
-        for (AutoReplyLogEntry entry : entries) {
-            recordLastWrittenDate(entry);
+        if (entries.isEmpty()) {
+            lastWrittenDate = null;
+            return;
         }
+        AutoReplyLogEntry lastEntry = entries.get(entries.size() - 1);
+        lastWrittenDate = Instant.ofEpochMilli(lastEntry.getDisplayTimeMillis())
+                .atZone(ZoneId.systemDefault())
+                .toLocalDate();
     }
 
     private void writeEntryToFile(AutoReplyLogEntry entry) {
@@ -133,16 +139,14 @@ public class AutoReplyLogStore implements AutoReplyService.Listener {
             Path folder = base.resolve(LOG_DIR_NAME);
             Files.createDirectories(folder);
 
-            String filename = sanitizeChannel(entry.getChannel()) + ".txt";
-            Path file = folder.resolve(filename);
+            Path file = folder.resolve(LOG_FILE_NAME);
 
             LocalDate entryDate = Instant.ofEpochMilli(entry.getDisplayTimeMillis())
                     .atZone(ZoneId.systemDefault())
                     .toLocalDate();
             List<String> lines = new ArrayList<>();
 
-            LocalDate lastWritten = lastWrittenDateByChannel.get(filename);
-            if (!entryDate.equals(lastWritten)) {
+            if (!entryDate.equals(lastWrittenDate)) {
                 lines.add(entryDate.format(DATE_HEADER_FORMATTER));
             }
 
@@ -150,41 +154,20 @@ public class AutoReplyLogStore implements AutoReplyService.Listener {
                     .withZone(ZoneId.systemDefault())
                     .format(Instant.ofEpochMilli(entry.getDisplayTimeMillis()));
             String channelLabel = StringUtil.isNullOrEmpty(entry.getChannel())
-                    ? ""
-                    : " | Channel: #" + entry.getChannel();
-            lines.add(String.format("[%s] Trigger: %s | Profile: %s%s", time, entry.getTrigger(), entry.getProfile(), channelLabel));
+                    ? "Channel: (none)"
+                    : "Channel: #" + entry.getChannel();
+            lines.add(String.format("[%s] %s | Trigger: %s | Profile: %s", time, channelLabel, entry.getTrigger(), entry.getProfile()));
             lines.add("Sent: " + entry.getReply());
             lines.add("");
 
             Files.write(file, lines, StandardCharsets.UTF_8,
                     StandardOpenOption.CREATE, StandardOpenOption.APPEND);
 
-            lastWrittenDateByChannel.put(filename, entryDate);
+            lastWrittenDate = entryDate;
         }
         catch (IOException ex) {
             LOGGER.log(Level.FINE, "Failed to write auto-reply log entry", ex);
         }
-    }
-
-    private void recordLastWrittenDate(AutoReplyLogEntry entry) {
-        LocalDate entryDate = Instant.ofEpochMilli(entry.getDisplayTimeMillis())
-                .atZone(ZoneId.systemDefault())
-                .toLocalDate();
-        String key = sanitizeChannel(entry.getChannel()) + ".txt";
-        lastWrittenDateByChannel.put(key, entryDate);
-    }
-
-    private String sanitizeChannel(String channel) {
-        if (StringUtil.isNullOrEmpty(channel)) {
-            return DEFAULT_CHANNEL_FILENAME;
-        }
-        String normalized = channel.toLowerCase(Locale.ENGLISH)
-                .replaceAll("[^a-z0-9-_]", "_")
-                .replaceAll("_+", "_");
-        if (normalized.isEmpty()) {
-            return DEFAULT_CHANNEL_FILENAME;
-        }
-        return normalized;
     }
 
     private void persist() {

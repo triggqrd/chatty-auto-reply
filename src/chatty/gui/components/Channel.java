@@ -151,7 +151,6 @@ public final class Channel extends JPanel {
         logPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, mainPane, logSidebar);
         logPane.setResizeWeight(1);
         logPane.setDividerSize(DIVIDER_SIZE);
-        logPane.setOneTouchExpandable(true);
         logPane.setDividerLocation(0.82);
 
         logToggleButton = createLogToggleButton();
@@ -162,7 +161,12 @@ public final class Channel extends JPanel {
                 logPane.setBounds(0, 0, size.width, size.height);
                 Dimension buttonSize = logToggleButton.getPreferredSize();
                 int margin = 6;
-                int x = size.width - buttonSize.width - margin;
+                int dividerLocation = logPane.getDividerLocation();
+                int sidebarX = dividerLocation + logPane.getDividerSize();
+                if (sidebarX <= 0 || sidebarX > size.width) {
+                    sidebarX = size.width - buttonSize.width - margin;
+                }
+                int x = Math.min(Math.max(sidebarX + margin, margin), size.width - buttonSize.width - margin);
                 int y = margin;
                 logToggleButton.setBounds(x, y, buttonSize.width, buttonSize.height);
             }
@@ -186,9 +190,11 @@ public final class Channel extends JPanel {
 
     private JButton createLogToggleButton() {
         JButton button = new JButton("Log");
-        button.setMargin(new Insets(4, 8, 4, 8));
+        button.setMargin(new Insets(2, 6, 2, 6));
+        button.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
         button.setFocusPainted(false);
         button.setFocusable(false);
+        button.setRequestFocusEnabled(false);
         button.addActionListener(e -> toggleLogSidebar());
         button.setToolTipText("Toggle auto-reply log");
         return button;

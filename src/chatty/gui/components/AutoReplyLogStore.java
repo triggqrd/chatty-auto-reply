@@ -2,15 +2,30 @@ package chatty.gui.components;
 
 import chatty.AutoReplyEvent;
 import chatty.AutoReplyService;
+import chatty.Chatty;
+import chatty.Chatty.PathType;
+import chatty.util.StringUtil;
 import chatty.util.settings.Settings;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Persists auto-reply log entries and broadcasts updates to any listeners that
@@ -20,15 +35,23 @@ public class AutoReplyLogStore implements AutoReplyService.Listener {
 
     public static final String SETTING_KEY = "autoReplyLogEntries";
 
+    private static final Logger LOGGER = Logger.getLogger(AutoReplyLogStore.class.getName());
+    private static final DateTimeFormatter DATE_HEADER_FORMATTER = DateTimeFormatter.ofPattern("EEEE, MMMM d, uuuu");
+    private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
+    private static final String LOG_DIR_NAME = "auto-reply";
+    private static final String DEFAULT_CHANNEL_FILENAME = "general";
+
     private static final int MAX_ENTRIES = 400;
 
     private final Settings settings;
     private final List<AutoReplyLogEntry> entries = new ArrayList<>();
     private final List<Listener> listeners = new CopyOnWriteArrayList<>();
+    private final Map<String, LocalDate> lastWrittenDateByChannel = new LinkedHashMap<>();
 
     public AutoReplyLogStore(Settings settings) {
         this.settings = Objects.requireNonNull(settings);
         loadFromSettings();
+        rebuildLastWrittenDates();
     }
 
     @Override
@@ -67,6 +90,7 @@ public class AutoReplyLogStore implements AutoReplyService.Listener {
             entries.remove(0);
         }
         persist();
+        writeEntryToFile(entry);
         notifyListeners(entry);
     }
 
@@ -94,6 +118,73 @@ public class AutoReplyLogStore implements AutoReplyService.Listener {
                 entries.add(entry);
             }
         }
+    }
+
+    private void rebuildLastWrittenDates() {
+        for (AutoReplyLogEntry entry : entries) {
+            recordLastWrittenDate(entry);
+        }
+    }
+
+    private void writeEntryToFile(AutoReplyLogEntry entry) {
+        try {
+            Chatty.updateCustomPathFromSettings(PathType.LOGS);
+            Path base = Chatty.getPathCreate(PathType.LOGS);
+            Path folder = base.resolve(LOG_DIR_NAME);
+            Files.createDirectories(folder);
+
+            String filename = sanitizeChannel(entry.getChannel()) + ".txt";
+            Path file = folder.resolve(filename);
+
+            LocalDate entryDate = Instant.ofEpochMilli(entry.getDisplayTimeMillis())
+                    .atZone(ZoneId.systemDefault())
+                    .toLocalDate();
+            List<String> lines = new ArrayList<>();
+
+            LocalDate lastWritten = lastWrittenDateByChannel.get(filename);
+            if (!entryDate.equals(lastWritten)) {
+                lines.add(entryDate.format(DATE_HEADER_FORMATTER));
+            }
+
+            String time = TIME_FORMATTER
+                    .withZone(ZoneId.systemDefault())
+                    .format(Instant.ofEpochMilli(entry.getDisplayTimeMillis()));
+            String channelLabel = StringUtil.isNullOrEmpty(entry.getChannel())
+                    ? ""
+                    : " | Channel: #" + entry.getChannel();
+            lines.add(String.format("[%s] Trigger: %s | Profile: %s%s", time, entry.getTrigger(), entry.getProfile(), channelLabel));
+            lines.add("Sent: " + entry.getReply());
+            lines.add("");
+
+            Files.write(file, lines, StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+
+            lastWrittenDateByChannel.put(filename, entryDate);
+        }
+        catch (IOException ex) {
+            LOGGER.log(Level.FINE, "Failed to write auto-reply log entry", ex);
+        }
+    }
+
+    private void recordLastWrittenDate(AutoReplyLogEntry entry) {
+        LocalDate entryDate = Instant.ofEpochMilli(entry.getDisplayTimeMillis())
+                .atZone(ZoneId.systemDefault())
+                .toLocalDate();
+        String key = sanitizeChannel(entry.getChannel()) + ".txt";
+        lastWrittenDateByChannel.put(key, entryDate);
+    }
+
+    private String sanitizeChannel(String channel) {
+        if (StringUtil.isNullOrEmpty(channel)) {
+            return DEFAULT_CHANNEL_FILENAME;
+        }
+        String normalized = channel.toLowerCase(Locale.ENGLISH)
+                .replaceAll("[^a-z0-9-_]", "_")
+                .replaceAll("_+", "_");
+        if (normalized.isEmpty()) {
+            return DEFAULT_CHANNEL_FILENAME;
+        }
+        return normalized;
     }
 
     private void persist() {

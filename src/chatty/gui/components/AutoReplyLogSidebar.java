@@ -6,17 +6,23 @@ import chatty.util.DateTime;
 import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Dimension;
+import java.awt.FlowLayout;
 import java.awt.Font;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
 import javax.swing.DefaultListModel;
 import javax.swing.JButton;
 import javax.swing.JComponent;
+import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JPanel;
@@ -33,11 +39,14 @@ import javax.swing.border.EmptyBorder;
 public class AutoReplyLogSidebar extends JPanel implements AutoReplyLogStore.Listener {
 
     private static final DateTimeFormatter HEADER_FORMATTER = DateTimeFormatter.ofPattern("EEEE, MMMM d, uuuu");
+    private static final String ALL_CHANNELS_OPTION = "All Channels";
 
     private final AutoReplyLogStore store;
     private final DefaultListModel<LogListItem> model = new DefaultListModel<>();
     private final JList<LogListItem> list = new JList<>(model);
+    private final JComboBox<String> channelSelector = new JComboBox<>();
     private boolean listening;
+    private boolean updatingChannels;
 
     public AutoReplyLogSidebar(AutoReplyLogStore store) {
         this.store = store;
@@ -52,9 +61,22 @@ public class AutoReplyLogSidebar extends JPanel implements AutoReplyLogStore.Lis
         title.setBorder(new EmptyBorder(4, 2, 4, 2));
         header.add(title, BorderLayout.WEST);
 
+        JPanel controls = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        controls.setOpaque(false);
+        JLabel channelLabel = new JLabel("Channel:");
+        channelSelector.addItem(ALL_CHANNELS_OPTION);
+        channelSelector.addActionListener(e -> {
+            if (!updatingChannels) {
+                rebuild(store.getEntries());
+            }
+        });
+
         JButton clearButton = new JButton("Clear");
         clearButton.addActionListener(e -> store.clear());
-        header.add(clearButton, BorderLayout.EAST);
+        controls.add(channelLabel);
+        controls.add(channelSelector);
+        controls.add(clearButton);
+        header.add(controls, BorderLayout.EAST);
 
         list.setCellRenderer(new LogListRenderer());
         list.setFocusable(false);
@@ -95,9 +117,14 @@ public class AutoReplyLogSidebar extends JPanel implements AutoReplyLogStore.Lis
     }
 
     private void rebuild(List<AutoReplyLogEntry> entries) {
+        updateChannelSelector(entries);
+        String filterChannel = getSelectedChannel();
         model.clear();
         LocalDate lastDate = null;
         for (AutoReplyLogEntry entry : entries) {
+            if (filterChannel != null && !entry.getChannel().equalsIgnoreCase(filterChannel)) {
+                continue;
+            }
             LocalDate date = Instant.ofEpochMilli(entry.getDisplayTimeMillis())
                     .atZone(ZoneId.systemDefault())
                     .toLocalDate();
@@ -112,6 +139,55 @@ public class AutoReplyLogSidebar extends JPanel implements AutoReplyLogStore.Lis
             list.ensureIndexIsVisible(lastIndex);
             list.setSelectedIndex(lastIndex);
         }
+    }
+
+    private void updateChannelSelector(List<AutoReplyLogEntry> entries) {
+        updatingChannels = true;
+        Map<String, String> channels = new LinkedHashMap<>();
+        for (AutoReplyLogEntry entry : entries) {
+            String channel = entry.getChannel();
+            if (channel != null && !channel.isEmpty()) {
+                channels.putIfAbsent(channel.toLowerCase(), channel);
+            }
+        }
+        Object previous = channelSelector.getSelectedItem();
+        Set<String> seen = new LinkedHashSet<>();
+
+        channelSelector.removeAllItems();
+        channelSelector.addItem(ALL_CHANNELS_OPTION);
+        for (String key : channels.keySet()) {
+            String channel = channels.get(key);
+            if (seen.add(channel)) {
+                channelSelector.addItem(channel);
+            }
+        }
+
+        if (previous != null && hasChannel(previous.toString(), channels)) {
+            channelSelector.setSelectedItem(previous.toString());
+        }
+        else {
+            channelSelector.setSelectedItem(ALL_CHANNELS_OPTION);
+        }
+        updatingChannels = false;
+    }
+
+    private boolean hasChannel(String channel, Map<String, String> channels) {
+        if (channel == null) {
+            return false;
+        }
+        return channels.containsKey(channel.toLowerCase());
+    }
+
+    private String getSelectedChannel() {
+        Object selected = channelSelector.getSelectedItem();
+        if (selected == null) {
+            return null;
+        }
+        String value = selected.toString();
+        if (ALL_CHANNELS_OPTION.equals(value)) {
+            return null;
+        }
+        return value;
     }
 
     private static class LogListItem {

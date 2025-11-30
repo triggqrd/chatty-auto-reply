@@ -2,7 +2,20 @@ package chatty.gui.components;
 
 import chatty.AutoReplyEvent;
 import chatty.AutoReplyService;
+import chatty.Chatty;
+import chatty.Chatty.PathType;
 import chatty.util.settings.Settings;
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -10,7 +23,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Persists auto-reply log entries and broadcasts updates to any listeners that
@@ -21,10 +37,15 @@ public class AutoReplyLogStore implements AutoReplyService.Listener {
     public static final String SETTING_KEY = "autoReplyLogEntries";
 
     private static final int MAX_ENTRIES = 400;
+    private static final Logger LOGGER = Logger.getLogger(AutoReplyLogStore.class.getName());
+    private static final DateTimeFormatter FILE_HEADER_FORMATTER = DateTimeFormatter.ofPattern("EEEE, MMMM d, uuuu");
+    private static final DateTimeFormatter FILE_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
+    private static final String DATE_HEADER_PREFIX = "===== ";
 
     private final Settings settings;
     private final List<AutoReplyLogEntry> entries = new ArrayList<>();
     private final List<Listener> listeners = new CopyOnWriteArrayList<>();
+    private final Map<String, LocalDate> lastLoggedDateByChannel = new ConcurrentHashMap<>();
 
     public AutoReplyLogStore(Settings settings) {
         this.settings = Objects.requireNonNull(settings);
@@ -67,6 +88,7 @@ public class AutoReplyLogStore implements AutoReplyService.Listener {
             entries.remove(0);
         }
         persist();
+        appendToFile(entry);
         notifyListeners(entry);
     }
 
@@ -103,6 +125,82 @@ public class AutoReplyLogStore implements AutoReplyService.Listener {
         }
         settings.putList(SETTING_KEY, data);
         settings.setSettingChanged(SETTING_KEY);
+    }
+
+    private void appendToFile(AutoReplyLogEntry entry) {
+        try {
+            Chatty.updateCustomPathFromSettings(PathType.LOGS);
+            Path logDirectory = Chatty.getPathCreate(PathType.LOGS).resolve("auto-reply");
+            Files.createDirectories(logDirectory);
+
+            String safeChannel = sanitizeChannel(entry.getChannel());
+            Path logFile = logDirectory.resolve(safeChannel + ".txt");
+
+            LocalDate entryDate = Instant.ofEpochMilli(entry.getDisplayTimeMillis())
+                    .atZone(ZoneId.systemDefault())
+                    .toLocalDate();
+            LocalDate lastDate = lastLoggedDateByChannel.computeIfAbsent(safeChannel, key -> readLastLoggedDate(logFile));
+
+            try (BufferedWriter writer = Files.newBufferedWriter(logFile,
+                    StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.APPEND)) {
+                if (lastDate == null || !entryDate.equals(lastDate)) {
+                    writer.write(DATE_HEADER_PREFIX + entryDate.format(FILE_HEADER_FORMATTER) + " =====");
+                    writer.newLine();
+                    lastLoggedDateByChannel.put(safeChannel, entryDate);
+                }
+
+                String time = Instant.ofEpochMilli(entry.getDisplayTimeMillis())
+                        .atZone(ZoneId.systemDefault())
+                        .toLocalTime()
+                        .format(FILE_TIME_FORMATTER);
+                String channelLabel = entry.getChannel().isEmpty() ? "" : " #" + entry.getChannel();
+                String logLine = String.format("[%s]%s Trigger: %s | Profile: %s | Reply: %s",
+                        time,
+                        channelLabel,
+                        entry.getTrigger(),
+                        entry.getProfile(),
+                        entry.getReply());
+                writer.write(logLine);
+                writer.newLine();
+            }
+        }
+        catch (IOException ex) {
+            LOGGER.log(Level.FINE, "Could not write auto-reply log entry", ex);
+        }
+    }
+
+    private LocalDate readLastLoggedDate(Path logFile) {
+        if (!Files.exists(logFile)) {
+            return null;
+        }
+        LocalDate lastDate = null;
+        try (BufferedReader reader = Files.newBufferedReader(logFile, StandardCharsets.UTF_8)) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (line.startsWith(DATE_HEADER_PREFIX) && line.endsWith(" =====")) {
+                    String dateText = line.substring(DATE_HEADER_PREFIX.length(), line.length() - " =====".length());
+                    try {
+                        lastDate = LocalDate.parse(dateText, FILE_HEADER_FORMATTER);
+                    }
+                    catch (Exception ignored) {
+                        // Ignore malformed headers and continue searching
+                    }
+                }
+            }
+        }
+        catch (IOException ex) {
+            LOGGER.log(Level.FINE, "Could not read auto-reply log file", ex);
+        }
+        return lastDate;
+    }
+
+    private String sanitizeChannel(String channel) {
+        String base = channel == null || channel.trim().isEmpty()
+                ? "unknown_channel"
+                : channel.trim();
+        return base.replaceAll("[^A-Za-z0-9-_]+", "_");
     }
 
     public interface Listener {

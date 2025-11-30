@@ -8,6 +8,7 @@ import chatty.AutoReplyManager.ReplySelection;
 import chatty.Chatty;
 import chatty.Chatty.PathType;
 import chatty.gui.MainGui;
+import chatty.gui.Highlighter;
 import chatty.util.StringUtil;
 import chatty.util.irc.MsgTags;
 import chatty.util.Sound;
@@ -207,7 +208,8 @@ public class AutoReplyService implements AutoReplyManager.Listener {
         }
         if (trigger.shouldNotify(defaultNotification)) {
             gui.printSystem(trigger.buildNotificationMessage());
-            gui.triggerCommandNotification(channel, "[Auto Reply] %s", trigger.notificationBody(), false, true);
+            Highlighter.HighlightItem highlightItem = new Highlighter.HighlightItem(trigger.notificationBody());
+            gui.triggerCommandNotification(channel, "[Auto Reply] %s", trigger.notificationBody(), highlightItem);
         }
         printAutoReplyMessage(channel, reply);
         playSoundIfConfigured(trigger.resolveSound(defaultSound), trigger.id);

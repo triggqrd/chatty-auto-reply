@@ -522,8 +522,11 @@ public class AutoReplySettings extends SettingsPanel {
     }
 
     private void updateActiveProfileCombo() {
+        String selectedId = config != null ? config.getActiveProfileId() : null;
         ActiveProfileItem current = (ActiveProfileItem) activeProfileCombo.getSelectedItem();
-        String selectedId = current != null ? current.id : config.getActiveProfileId();
+        if (StringUtil.isNullOrEmpty(selectedId) && current != null) {
+            selectedId = current.id;
+        }
         DefaultComboBoxModel<ActiveProfileItem> model = new DefaultComboBoxModel<>();
         model.addElement(new ActiveProfileItem("default", Language.getString("settings.autoReply.profile.default")));
         for (AutoReplyProfile profile : config.getProfiles()) {

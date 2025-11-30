@@ -32,8 +32,11 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
+import javax.swing.JLayeredPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollBar;
 import javax.swing.JScrollPane;
@@ -65,6 +68,7 @@ public final class Channel extends JPanel {
     private final JScrollPane west;
     private final AutoReplyLogSidebar logSidebar;
     private final JSplitPane logPane;
+    private final JLayeredPane logPaneLayer;
     private final StyleServer styleManager;
     private final MainGui main;
     private Type type;
@@ -82,6 +86,7 @@ public final class Channel extends JPanel {
     private ModerationPanel modPanel;
     private Popup modPanelPopup;
     private final JButton modPanelButton;
+    private final JButton logToggleButton;
 
     public Channel(final Room room, Type type, MainGui main, StyleManager styleManager,
             ContextMenuListener contextMenuListener, boolean insertTop) {
@@ -130,10 +135,6 @@ public final class Channel extends JPanel {
         JPanel statusPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
         statusPanel.setOpaque(false);
         statusPanel.add(statusIndicator);
-        JButton toggleLogButton = new JButton("Toggle Log Sidebar");
-        toggleLogButton.setMargin(new Insets(8, 12, 8, 12));
-        toggleLogButton.addActionListener(e -> toggleLogSidebar());
-        statusPanel.add(toggleLogButton);
         inputPanel.add(statusPanel, BorderLayout.NORTH);
         main.configureAutoReplyIndicator(statusIndicator);
         inputPanel.add(input, BorderLayout.CENTER);
@@ -153,9 +154,44 @@ public final class Channel extends JPanel {
         logPane.setOneTouchExpandable(true);
         logPane.setDividerLocation(0.82);
 
+        logToggleButton = createLogToggleButton();
+        logPaneLayer = new JLayeredPane() {
+            @Override
+            public void doLayout() {
+                Dimension size = getSize();
+                logPane.setBounds(0, 0, size.width, size.height);
+                Dimension buttonSize = logToggleButton.getPreferredSize();
+                int margin = 6;
+                int x = size.width - buttonSize.width - margin;
+                int y = margin;
+                logToggleButton.setBounds(x, y, buttonSize.width, buttonSize.height);
+            }
+        };
+        logPaneLayer.setOpaque(false);
+        logPaneLayer.setPreferredSize(logPane.getPreferredSize());
+        logPaneLayer.add(logPane, JLayeredPane.DEFAULT_LAYER);
+        logPaneLayer.add(logToggleButton, JLayeredPane.PALETTE_LAYER);
+        logPaneLayer.addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                logPaneLayer.revalidate();
+                logPaneLayer.repaint();
+            }
+        });
+
         // Add components
-        add(logPane, BorderLayout.CENTER);
+        add(logPaneLayer, BorderLayout.CENTER);
         add(inputPanel, BorderLayout.SOUTH);
+    }
+
+    private JButton createLogToggleButton() {
+        JButton button = new JButton("Log");
+        button.setMargin(new Insets(4, 8, 4, 8));
+        button.setFocusPainted(false);
+        button.setFocusable(false);
+        button.addActionListener(e -> toggleLogSidebar());
+        button.setToolTipText("Toggle auto-reply log");
+        return button;
     }
     
     public void updateModButton() {
@@ -607,6 +643,8 @@ public final class Channel extends JPanel {
         }
         logPane.revalidate();
         logPane.repaint();
+        logPaneLayer.revalidate();
+        logPaneLayer.repaint();
         logSidebarVisible = !logSidebarVisible;
     }
     

@@ -10,8 +10,6 @@ import javax.swing.JPanel;
 import javax.swing.border.Border;
 import javax.swing.border.EmptyBorder;
 
-import chatty.gui.components.modern.ModernTitledPanel;
-
 /**
  * Providing a simpler way to layout a panel with settings.
  * 
@@ -32,12 +30,10 @@ public class SettingsPanel extends JPanel {
     public SettingsPanel() {
         this(false);
     }
-
+    
     public SettingsPanel(boolean expand) {
         setLayout(new GridBagLayout());
-        setOpaque(false);
         base = new JPanel(new GridBagLayout());
-        base.setOpaque(false);
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.anchor = GridBagConstraints.NORTH;
         if (expand) {
@@ -57,8 +53,9 @@ public class SettingsPanel extends JPanel {
      * @return The created JPanel.
      */
     protected JPanel createTitledPanel(String title) {
-        ModernTitledPanel panel = new ModernTitledPanel(title);
-        panel.setBorder(BorderFactory.createCompoundBorder(panel.getBorder(), PADDING));
+        JPanel panel = new JPanel(new GridBagLayout());
+        Border titleBorder = BorderFactory.createTitledBorder(title);
+        panel.setBorder(BorderFactory.createCompoundBorder(titleBorder, PADDING));
         return panel;
     }
     

@@ -55,14 +55,12 @@ public class AutoReplyLogSidebar extends JPanel implements AutoReplyLogStore.Lis
 
         JPanel header = new JPanel(new BorderLayout());
         header.setOpaque(false);
-        header.setBorder(new EmptyBorder(0, 6, 6, 6));
+        header.setBorder(new EmptyBorder(6, 8, 6, 8));
 
         JLabel title = new JLabel("Auto Reply Log");
-        title.setBorder(new EmptyBorder(4, 2, 4, 2));
         header.add(title, BorderLayout.WEST);
 
-        JPanel controls = new JPanel();
-        controls.setLayout(new BoxLayout(controls, BoxLayout.X_AXIS));
+        JPanel controls = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
         controls.setOpaque(false);
 
         JButton clearButton = new JButton("Clear");

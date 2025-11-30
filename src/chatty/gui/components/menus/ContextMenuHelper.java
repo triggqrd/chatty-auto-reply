@@ -7,7 +7,9 @@ import chatty.util.commands.Parameters;
 import chatty.util.settings.Settings;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.swing.ImageIcon;
@@ -194,6 +196,51 @@ public class ContextMenuHelper {
             } else {
                 m.addItem("ignore"+item, "Ignore "+label, submenu);
             }
+        }
+    }
+    
+    /**
+     * Adds a submenu containing the provided options as radio menu items, which
+     * the current value selected. If the current value is not one of the
+     * options and additional option will be added.
+     *
+     * @param menu The ContextMenu to add to
+     * @param submenu The name of the submenu
+     * @param actionPrefix The menu action prefix, the numeric value will be
+     * appended to this
+     * @param currentValue The current value which will be selected
+     * @param options Numeric value/menu item label pairs
+     */
+    public static void addNumericOptions(ContextMenu menu, String submenu, String actionPrefix, long currentValue, Map<Long, String> options) {
+        if (!options.containsKey(currentValue)) {
+            // Show current value raw if it's not a valid option, like a setting using a combo box would
+            String action = actionPrefix+currentValue;
+            menu.addRadioItem(action, String.valueOf(currentValue), submenu, submenu);
+            menu.getItem(action).setSelected(true);
+        }
+        for (Map.Entry<Long, String> entry : options.entrySet()) {
+            String action = actionPrefix+entry.getKey();
+            menu.addRadioItem(action, entry.getValue(), submenu, submenu);
+            if (entry.getKey() == currentValue) {
+                menu.getItem(action).setSelected(true);
+            }
+        }
+    }
+    
+    /**
+     * Gets the numeric value from an action received from a menu item created
+     * with {@link addNumericOptions(ContextMenu, String, String, long, Map)}.
+     * It is safe to apply this function to every received action, not just ones
+     * with the correct {@code actionPrefix}.
+     * 
+     * @param receivedAction The action received from the menu item
+     * @param actionPrefix The same action prefix used when creating the menu
+     * @param handler Function that receives the numeric value
+     */
+    public static void handleNumericOption(String receivedAction, String actionPrefix, Consumer<Long> handler) {
+        if (receivedAction.startsWith(actionPrefix)) {
+            long value = Long.parseLong(receivedAction.substring(actionPrefix.length()));
+            handler.accept(value);
         }
     }
     

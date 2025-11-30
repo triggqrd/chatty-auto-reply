@@ -21,6 +21,7 @@ import chatty.util.api.ChannelInfo;
 import chatty.util.api.TwitchApi;
 import chatty.WhisperManager.WhisperListener;
 import chatty.gui.GuiUtil;
+import chatty.gui.Highlighter;
 import chatty.gui.laf.LaF;
 import chatty.gui.laf.LaF.LaFSettings;
 import chatty.gui.MainGui;
@@ -52,6 +53,7 @@ import chatty.util.ProcessManager;
 import chatty.util.Pronouns;
 import chatty.util.RawMessageTest;
 import chatty.util.ReplyManager;
+import chatty.util.Sound;
 import chatty.util.Speedruncom;
 import chatty.util.StreamHighlightHelper;
 import chatty.util.StreamStatusWriter;
@@ -1474,6 +1476,7 @@ public class TwitchClient {
                     result,
                     chan != null ? chan : "all channels"));
         });
+        commands.add("logAudioInfo", p -> Sound.logAudioSystemInfo());
         
         //-----------------------
         // Settings/Customization
@@ -1681,8 +1684,14 @@ public class TwitchClient {
                         text = split.get(1);
                     }
                 }
-                g.triggerCommandNotification(p.getChannel(), title, text,
-                        args.hasOption("h"), args.hasOption("m"));
+                String item = "";
+                if (args.hasOption("h")) {
+                    item += " config:!notify";
+                }
+                if (args.hasOption("m")) {
+                    item += " config:silent";
+                }
+                g.triggerCommandNotification(p.getChannel(), title, text, new Highlighter.HighlightItem(item));
             }
             else {
                 g.printSystem("Usage: /triggerNotification [-hmt] <text>");

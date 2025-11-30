@@ -1247,6 +1247,7 @@ EventLog.setMain(eventLog);
         // will delete the attributes correctly depending on the setting
         channels.setPopoutAttributes(client.settings.getList("popoutAttributes"));
         updatePopoutSettings();
+        channels.setInsertTop(client.settings.getBoolean("chatInsertTop"));
         
         loadCommercialDelaySettings();
         UrlOpener.setSettings(client.settings);
@@ -1291,6 +1292,7 @@ EventLog.setMain(eventLog);
         adminDialog.setStatusHistorySorting(client.settings.getString("statusHistorySorting"));
         
         Sound.setDeviceName(client.settings.getString("soundDevice"));
+        Sound.setCommand(client.settings.getBoolean("soundCommandEnabled"), client.settings.getString("soundCommand"));
         
         dockedDialogs.loadSettings();
         
@@ -3574,9 +3576,9 @@ EventLog.setMain(eventLog);
         });
     }
     
-    public void triggerCommandNotification(String channel, String title, String text, boolean noNotify, boolean noSound) {
+    public void triggerCommandNotification(String channel, String title, String text, HighlightItem fakeItem) {
         GuiUtil.edt(() -> {
-            notificationManager.commandNotification(channel, title, text, noNotify, noSound);
+            notificationManager.commandNotification(channel, title, text, fakeItem);
         });
     }
     
@@ -3762,10 +3764,7 @@ EventLog.setMain(eventLog);
                     } else {
                         channels.setChannelNewMessage(chan);
                     }
-                    notificationManager.highlight(user, localUser, text, tags,
-                            highlighter.getLastMatchNoNotification(),
-                            highlighter.getLastMatchNoSound(),
-                            isOwnMessage, whisper, bitsAmount > 0);
+                    notificationManager.highlight(user, localUser, text, tags, isOwnMessage, whisper, bitsAmount > 0, highlighter.getLastMatchItem());
                     TextToSpeech.get(client.settings).message(user, text, tags, isOwnMessage);
                 } else if (!ignored) {
                     if (whisper) {
@@ -4268,6 +4267,7 @@ EventLog.setMain(eventLog);
                     message.bgColor = highlighter.getLastMatchBackgroundColor();
                     message.colorSource = highlighter.getColorSource();
                     message.highlightSource = highlighter.getLastMatchItems();
+                    message.localUser = localUser;
                     routingTargets.add(highlighter.getLastMatchItem());
 
                     if (!highlighter.getLastMatchNoNotification()) {
@@ -4276,8 +4276,7 @@ EventLog.setMain(eventLog);
                         channels.setChannelNewMessage(channel);
                     }
                     notificationManager.infoHighlight(channel.getRoom(), message.text,
-                            highlighter.getLastMatchNoNotification(),
-                            highlighter.getLastMatchNoSound(), localUser);
+                            highlighter.getLastMatchItem(), localUser);
                 } else {
                     notificationManager.info(channel.getRoom(), message.text, localUser);
                 }
@@ -4309,7 +4308,7 @@ EventLog.setMain(eventLog);
             routingTargets.add(ignoreList.getLastMatchItem());
             if (!ignoreList.getLastMatchItem().hide()) {
                 ignoredMessages.addInfoMessage(channel.getChannel(), message.text,
-                        ignoreList.getLastTextMatches(), ignoreList.getLastMatchItems());
+                        ignoreList.getLastTextMatches(), ignoreList.getLastMatchItems(), localUser);
             }
             if (!ignoreList.getLastMatchItem().noLog()) {
                 client.chatLog.info("ignored", message.text, channel.getChannel());
@@ -5704,6 +5703,10 @@ EventLog.setMain(eventLog);
                     emoticons.setCheerBackground(HtmlColors.decode((String)value));
                 } else if (setting.equals("soundDevice")) {
                     Sound.setDeviceName((String)value);
+                } else if (setting.startsWith("soundCommand")) {
+                    BatchAction.queue(Sound.SOUND_COMMAND_UNIQUE,
+                                      () -> Sound.setCommand(client.settings.getBoolean("soundCommandEnabled"), client.settings.getString("soundCommand"))
+                    );
                 } else if (setting.equals("userDialogTimestamp")) {
                     userInfoDialog.setTimestampFormat(styleManager.makeTimestampFormat("userDialogTimestamp"));
                 }

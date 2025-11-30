@@ -533,6 +533,7 @@ public class SettingsManager {
         settings.addBoolean("inputEnabled", true);
         settings.addLong("bufferSize", 500);
         settings.addMap("bufferSizes", new HashMap<>(), Setting.LONG);
+        settings.addBoolean("chatInsertTop", false);
 
         settings.addString("liveStreamsSorting", "recent");
         settings.addBoolean("liveStreamsSortingFav", true);
@@ -553,6 +554,8 @@ public class SettingsManager {
         settings.addBoolean("sounds", true);
         settings.addString("soundsPath", "");
         settings.addString("soundDevice", "");
+        settings.addBoolean("soundCommandEnabled", false);
+        settings.addString("soundCommand", "");
         settings.addString("highlightSound", "off");
         settings.addString("highlightSoundFile", "ding.wav");
         settings.addLong("highlightSoundDelay", 15);
@@ -689,6 +692,9 @@ public class SettingsManager {
         settings.addList("ignoredUsersWhisper", new ArrayList(), Setting.STRING);
         settings.addBoolean("ignoredUsersHideInGUI", true);
         settings.addList("ignoreBlacklist", new ArrayList(), Setting.STRING);
+        
+        settings.addList("highlightDialog", new ArrayList<>(), Setting.LONG);
+        settings.addList("ignoreDialog", new ArrayList<>(), Setting.LONG);
         
         // Filter
         settings.addList("filter", new ArrayList(), Setting.STRING);

@@ -107,7 +107,7 @@ public class SettingsDialog extends JDialog implements ActionListener {
             "logLockFiles", "logMessageTemplate",
             "laf", "lafTheme", "lafFontScale", "language", "timezone", "locale",
             "userDialogMessageLimit", "cachePath", "imgPath", "exportPath",
-            "webp", "inputLimitsEnabled"
+            "webp", "inputLimitsEnabled", "chatInsertTop"
     ));
     
     private final Set<String> reconnectRequiredDef = new HashSet<>(Arrays.asList(
@@ -1179,6 +1179,7 @@ public class SettingsDialog extends JDialog implements ActionListener {
     
     private void cancel() {
         Sound.setDeviceName(settings.getString("soundDevice"));
+        Sound.setCommand(settings.getBoolean("soundCommandEnabled"), settings.getString("soundCommand"));
         if (lafPreviewed) {
             LaF.setLookAndFeel(LaFSettings.fromSettings(settings));
             LaF.updateLookAndFeel();

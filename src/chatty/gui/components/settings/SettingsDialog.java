@@ -456,6 +456,7 @@ public class SettingsDialog extends JDialog implements ActionListener {
     }
     
     public void showSettings(String action, Object parameter) {
+        boolean preferAutoReplySize = "showAutoReply".equals(action);
         //------------
         // Initialize
         //------------
@@ -475,6 +476,10 @@ public class SettingsDialog extends JDialog implements ActionListener {
         // a certain way)
         if (autoSetSize == null || autoSetSize.equals(getSize())) {
             pack();
+            if (preferAutoReplySize) {
+                Dimension preferred = buildAutoReplyPreferredSize();
+                setSize(Math.max(getWidth(), preferred.width), Math.max(getHeight(), preferred.height));
+            }
             Rectangle screenBounds = GuiUtil.getEffectiveScreenBounds(this);
 //            screenBounds = new Rectangle(700, 400); // Test
             if (getHeight() > screenBounds.height) {
@@ -492,6 +497,13 @@ public class SettingsDialog extends JDialog implements ActionListener {
         }
         lafPreviewed = false;
         setVisible(true);
+    }
+
+    private Dimension buildAutoReplyPreferredSize() {
+        Rectangle screenBounds = GuiUtil.getEffectiveScreenBounds(this);
+        int targetWidth = Math.min(screenBounds.width - 40, 1200);
+        int targetHeight = Math.min(screenBounds.height - 40, 900);
+        return new Dimension(Math.max(1000, targetWidth), Math.max(760, targetHeight));
     }
     
     private void stuffBasedOnPanel() {

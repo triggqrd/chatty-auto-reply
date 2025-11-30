@@ -44,6 +44,7 @@ import chatty.gui.colors.ColorItem;
 import chatty.gui.colors.MsgColorItem;
 import chatty.gui.colors.MsgColorManager;
 import chatty.gui.components.AddressbookDialog;
+import chatty.gui.components.AutoReplyLogStore;
 import chatty.gui.components.AutoReplyStatusIndicator;
 import chatty.gui.components.AutoModDialog;
 import chatty.gui.components.AutoReplyLogDialog;
@@ -187,6 +188,7 @@ public class MainGui extends JFrame implements Runnable {
     private final Highlighter filter = new Highlighter("filter");
     public final RepeatMsgHelper repeatMsg;
     private final AutoReplyManager autoReplyManager;
+    private final AutoReplyLogStore autoReplyLogStore;
     private final Set<AutoReplyStatusIndicator> autoReplyIndicators = Collections.newSetFromMap(new WeakHashMap<>());
     private final MsgColorManager msgColorManager;
     private StyleManager styleManager;
@@ -212,6 +214,7 @@ public class MainGui extends JFrame implements Runnable {
         localEmotes = new LocalEmotesSetting(client.settings, this);
         repeatMsg = new RepeatMsgHelper(client.settings);
         autoReplyManager = new AutoReplyManager(client.settings);
+        autoReplyLogStore = new AutoReplyLogStore(client.settings);
         autoReplyManager.addListener(config -> updateAutoReplyIndicators(config));
         SwingUtilities.invokeLater(this);
     }
@@ -405,8 +408,11 @@ EventLog.setMain(eventLog);
 
     public void registerAutoReplyLogListener() {
         AutoReplyService service = client.getAutoReplyService();
-        if (service != null && autoReplyLogDialog != null) {
-            service.setListener(autoReplyLogDialog);
+        if (service != null) {
+            service.addListener(autoReplyLogStore);
+            if (autoReplyLogDialog != null) {
+                service.addListener(autoReplyLogDialog);
+            }
         }
     }
 
@@ -5816,6 +5822,10 @@ EventLog.setMain(eventLog);
 
     public AutoReplyManager getAutoReplyManager() {
         return autoReplyManager;
+    }
+
+    public AutoReplyLogStore getAutoReplyLogStore() {
+        return autoReplyLogStore;
     }
     
     public Collection<String> getSettingNames() {

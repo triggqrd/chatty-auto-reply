@@ -13,6 +13,7 @@ import chatty.gui.GuiUtil;
 import chatty.gui.components.menus.ContextMenuListener;
 import chatty.gui.components.menus.TextSelectionMenu;
 import chatty.gui.components.AutoReplyStatusIndicator;
+import chatty.gui.components.AutoReplyLogSidebar;
 import chatty.gui.components.textpane.ChannelTextPane;
 import chatty.gui.components.textpane.InfoMessage;
 import chatty.gui.components.textpane.Message;
@@ -25,6 +26,7 @@ import chatty.util.commands.Parameters;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.Insets;
 import java.awt.Point;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -61,6 +63,8 @@ public final class Channel extends JPanel {
     private final JSplitPane mainPane;
     private final JScrollPane userlist;
     private final JScrollPane west;
+    private final AutoReplyLogSidebar logSidebar;
+    private final JSplitPane logPane;
     private final StyleServer styleManager;
     private final MainGui main;
     private Type type;
@@ -70,6 +74,8 @@ public final class Channel extends JPanel {
     private boolean userlistEnabled = true;
     private int previousUserlistWidth;
     private int userlistMinWidth;
+    private boolean logSidebarVisible = true;
+    private int previousLogDividerLocation = -1;
 
     private Room room;
     
@@ -121,9 +127,13 @@ public final class Channel extends JPanel {
         
         inputPanel = new JPanel(new BorderLayout());
         AutoReplyStatusIndicator statusIndicator = new AutoReplyStatusIndicator();
-        JPanel statusPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        JPanel statusPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
         statusPanel.setOpaque(false);
         statusPanel.add(statusIndicator);
+        JButton toggleLogButton = new JButton("Toggle Log Sidebar");
+        toggleLogButton.setMargin(new Insets(8, 12, 8, 12));
+        toggleLogButton.addActionListener(e -> toggleLogSidebar());
+        statusPanel.add(toggleLogButton);
         inputPanel.add(statusPanel, BorderLayout.NORTH);
         main.configureAutoReplyIndicator(statusIndicator);
         inputPanel.add(input, BorderLayout.CENTER);
@@ -136,8 +146,8 @@ public final class Channel extends JPanel {
             openModPanel();
         });
         
-        AutoReplyLogSidebar logSidebar = new AutoReplyLogSidebar(main.getAutoReplyLogStore());
-        JSplitPane logPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, mainPane, logSidebar);
+        logSidebar = new AutoReplyLogSidebar(main.getAutoReplyLogStore());
+        logPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, mainPane, logSidebar);
         logPane.setResizeWeight(1);
         logPane.setDividerSize(DIVIDER_SIZE);
         logPane.setOneTouchExpandable(true);
@@ -573,6 +583,31 @@ public final class Channel extends JPanel {
      */
     public final void toggleUserlist() {
         setUserlistEnabled(!userlistEnabled);
+    }
+
+    private void toggleLogSidebar() {
+        if (logSidebarVisible) {
+            previousLogDividerLocation = logPane.getDividerLocation();
+            logSidebar.setVisible(false);
+            logPane.setDividerSize(0);
+            logPane.setDividerLocation(1.0);
+        } else {
+            logSidebar.setVisible(true);
+            logPane.setDividerSize(DIVIDER_SIZE);
+            int dividerLocation = previousLogDividerLocation > 0
+                    ? previousLogDividerLocation
+                    : (int) (logPane.getWidth() * 0.82);
+            if (dividerLocation <= 0) {
+                dividerLocation = logPane.getLastDividerLocation();
+            }
+            if (dividerLocation <= 0) {
+                dividerLocation = (int) (logPane.getWidth() * 0.82);
+            }
+            logPane.setDividerLocation(dividerLocation);
+        }
+        logPane.revalidate();
+        logPane.repaint();
+        logSidebarVisible = !logSidebarVisible;
     }
     
     public void selectPreviousUser() {

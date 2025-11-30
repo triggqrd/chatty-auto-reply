@@ -32,8 +32,6 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
-import java.awt.event.ComponentAdapter;
-import java.awt.event.ComponentEvent;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JPanel;
@@ -67,8 +65,6 @@ public final class Channel extends JPanel {
     private final JScrollPane west;
     private final AutoReplyLogSidebar logSidebar;
     private final JSplitPane logPane;
-    private final JPanel logContainer;
-    private final JButton logToggleButton;
     private final StyleServer styleManager;
     private final MainGui main;
     private Type type;
@@ -157,37 +153,8 @@ public final class Channel extends JPanel {
         logPane.setOneTouchExpandable(true);
         logPane.setDividerLocation(0.82);
 
-        logToggleButton = new JButton("Log");
-        logToggleButton.setMargin(new Insets(4, 8, 4, 8));
-        logToggleButton.setFocusPainted(false);
-        logToggleButton.setFocusable(false);
-        logToggleButton.addActionListener(e -> toggleLogSidebar());
-
-        logContainer = new JPanel(null) {
-
-            @Override
-            public void doLayout() {
-                Dimension size = getSize();
-                logPane.setBounds(0, 0, size.width, size.height);
-                positionLogToggleButton(size);
-            }
-
-        };
-        logContainer.setOpaque(false);
-        logContainer.add(logPane);
-        logContainer.add(logToggleButton);
-        logPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, evt -> updateLogToggleButtonPosition());
-        logPane.addComponentListener(new ComponentAdapter() {
-
-            @Override
-            public void componentResized(ComponentEvent e) {
-                updateLogToggleButtonPosition();
-            }
-
-        });
-
         // Add components
-        add(logContainer, BorderLayout.CENTER);
+        add(logPane, BorderLayout.CENTER);
         add(inputPanel, BorderLayout.SOUTH);
     }
     
@@ -641,30 +608,6 @@ public final class Channel extends JPanel {
         logPane.revalidate();
         logPane.repaint();
         logSidebarVisible = !logSidebarVisible;
-        updateLogToggleButtonPosition();
-    }
-
-    private void updateLogToggleButtonPosition() {
-        if (logContainer == null || logToggleButton == null) {
-            return;
-        }
-        Dimension size = logContainer.getSize();
-        if (size.width <= 0 || size.height <= 0) {
-            return;
-        }
-        positionLogToggleButton(size);
-    }
-
-    private void positionLogToggleButton(Dimension containerSize) {
-        Dimension buttonSize = logToggleButton.getPreferredSize();
-        int dividerLocation = logPane.getDividerLocation();
-        int dividerSize = logPane.getDividerSize();
-        int sidebarStart = logSidebarVisible
-                ? dividerLocation + dividerSize
-                : containerSize.width;
-        int x = Math.max(sidebarStart - buttonSize.width - 6, 6);
-        int y = 6;
-        logToggleButton.setBounds(x, y, buttonSize.width, buttonSize.height);
     }
     
     public void selectPreviousUser() {

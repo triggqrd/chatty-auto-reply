@@ -2,6 +2,10 @@
 package chatty.gui.components.settings;
 
 import chatty.gui.GuiUtil;
+import chatty.gui.components.modern.CardPanel;
+import chatty.gui.components.modern.GradientPanel;
+import chatty.gui.components.modern.ModernButton;
+import chatty.gui.components.modern.RoundedBorder;
 import chatty.util.colors.HtmlColors;
 import chatty.gui.laf.LaF;
 import chatty.gui.laf.LaF.LaFSettings;
@@ -14,16 +18,17 @@ import chatty.util.Sound;
 import chatty.util.StringUtil;
 import chatty.util.api.TokenInfo;
 import chatty.util.api.usericons.Usericon;
-import chatty.util.colors.ColorCorrectionNew;
 import chatty.util.hotkeys.Hotkey;
 import chatty.util.settings.Setting;
 import chatty.util.settings.Settings;
+import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Cursor;
 import java.awt.Dimension;
+import java.awt.Font;
 import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
@@ -48,6 +53,7 @@ import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.swing.*;
+import javax.swing.border.EmptyBorder;
 import javax.swing.tree.DefaultMutableTreeNode;
 
 /**
@@ -94,8 +100,8 @@ public class SettingsDialog extends JDialog implements ActionListener {
         }
     }
     
-    private final JButton ok = new JButton(Language.getString("dialog.button.save"));
-    private final JButton cancel = new JButton(Language.getString("dialog.button.cancel"));
+    private final ModernButton ok = new ModernButton(Language.getString("dialog.button.save"));
+    private final ModernButton cancel = new ModernButton(Language.getString("dialog.button.cancel"));
     
     private final Set<String> restartRequiredDef = new HashSet<>(Arrays.asList(
             "ffz", "nod3d", "noddraw",
@@ -113,6 +119,11 @@ public class SettingsDialog extends JDialog implements ActionListener {
     private final Set<String> reconnectRequiredDef = new HashSet<>(Arrays.asList(
             "membershipEnabled"
     ));
+
+    private static final Color ACCENT = new Color(118, 93, 255);
+    private static final Color NAV_BACKGROUND = new Color(32, 36, 55, 230);
+    private static final Color PANEL_BACKGROUND = new Color(23, 25, 39, 235);
+    private static final Color FIELD_BACKGROUND = new Color(255, 255, 255, 28);
     
     private boolean restartRequired = false;
     private boolean reconnectRequired = false;
@@ -263,7 +274,14 @@ public class SettingsDialog extends JDialog implements ActionListener {
         this.settings = settings;
 
         // Layout
-        setLayout(new GridBagLayout());
+        GradientPanel background = new GradientPanel(
+                new Color(35, 38, 56),
+                new Color(19, 20, 35),
+                22,
+                false);
+        background.setLayout(new GridBagLayout());
+        background.setBorder(new EmptyBorder(14, 14, 14, 14));
+        setContentPane(background);
         GridBagConstraints gbc;
 
         //--------------------------
@@ -271,32 +289,48 @@ public class SettingsDialog extends JDialog implements ActionListener {
         //--------------------------
         selection = Tree.createTree(MENU, searchHighlightColor);
         selection.setSelectionRow(0);
-        selection.setBorder(BorderFactory.createEtchedBorder());
+        selection.setOpaque(false);
+        selection.setBackground(new Color(35, 37, 54));
         JScrollPane selectionScroll = new JScrollPane(selection);
         selectionScroll.setBorder(BorderFactory.createEmptyBorder());
+        selectionScroll.setOpaque(false);
+        selectionScroll.getViewport().setOpaque(false);
         selectionScroll.setMinimumSize(selectionScroll.getPreferredSize());
 
+        JLabel navLabel = new JLabel(Language.getString("settings.title"));
+        navLabel.setForeground(new Color(230, 234, 246));
+        navLabel.setFont(navLabel.getFont().deriveFont(Font.BOLD, navLabel.getFont().getSize() + 1f));
+        navLabel.setBorder(new EmptyBorder(2, 2, 8, 2));
+
+        CardPanel navigation = new CardPanel();
+        navigation.setBackgroundColor(NAV_BACKGROUND);
+        navigation.setLayout(new BorderLayout());
+        navigation.setBorder(new EmptyBorder(10, 10, 10, 10));
+        navigation.add(navLabel, BorderLayout.NORTH);
+        navigation.add(selectionScroll, BorderLayout.CENTER);
+
         gbc = makeGbc(0,0,1,1);
-        gbc.insets = new Insets(10,10,10,3);
+        gbc.insets = new Insets(6,6,10,6);
         gbc.fill = GridBagConstraints.BOTH;
         gbc.weightx = 0;
         gbc.weighty = 1;
-        add(selectionScroll, gbc);
+        add(navigation, gbc);
         
         //--------------------------
         // Create setting pages
         //--------------------------
         cardManager = new CardLayout();
         cards = new JPanel(cardManager) {
-            
+
             @Override
             public void add(Component comp, Object constraints) {
                 JScrollPane scroll = new JScrollPane(comp);
-                // Set to empty instead of null, so it's not overridden when changing LaF
                 scroll.setBorder(BorderFactory.createEmptyBorder());
+                scroll.setOpaque(false);
+                scroll.getViewport().setOpaque(false);
                 super.add(scroll, constraints);
             }
-            
+
         };
         
         panels.put(Page.MAIN, new MainSettings(this));
@@ -350,11 +384,17 @@ public class SettingsDialog extends JDialog implements ActionListener {
         //--------------------------
         // Cards
         //--------------------------
+        CardPanel cardsWrapper = new CardPanel();
+        cardsWrapper.setBackgroundColor(PANEL_BACKGROUND);
+        cardsWrapper.setBorder(new EmptyBorder(8, 10, 10, 10));
+        cardsWrapper.setLayout(new BorderLayout());
+        cardsWrapper.add(cards, BorderLayout.CENTER);
+
         gbc = makeGbc(1,0,3,1);
         gbc.fill = GridBagConstraints.BOTH;
         gbc.weightx = 1;
         gbc.weighty = 1;
-        add(cards, gbc);
+        add(cardsWrapper, gbc);
         
         //--------------------------
         // Help Link
@@ -378,16 +418,26 @@ public class SettingsDialog extends JDialog implements ActionListener {
         //--------------------------
         // Search
         //--------------------------
-        JPanel searchPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        JTextField searchField = new JTextField(10);
+        CardPanel searchPanel = new CardPanel();
+        searchPanel.setBackgroundColor(PANEL_BACKGROUND);
+        searchPanel.setBorder(new EmptyBorder(6, 10, 6, 10));
+        searchPanel.setLayout(new FlowLayout(FlowLayout.LEFT, 8, 4));
+
+        JTextField searchField = new JTextField(12);
+        searchField.setOpaque(true);
+        searchField.setBackground(FIELD_BACKGROUND);
+        searchField.setForeground(Color.WHITE);
+        searchField.setCaretColor(Color.WHITE);
+        searchField.setBorder(new RoundedBorder(14, new Color(255, 255, 255, 60), new Color(0, 0, 0, 40)));
         GuiUtil.addChangeListener(searchField.getDocument(), e -> {
             search(searchField.getText());
         });
-        
+
         JLabel searchLabel = new JLabel(Language.getString("settings.search"));
+        searchLabel.setForeground(new Color(225, 228, 240));
         searchLabel.setLabelFor(searchField);
-        
-        JButton resetSearchButton = new JButton(Language.getString("settings.resetSearch"));
+
+        JButton resetSearchButton = new ModernButton(Language.getString("settings.resetSearch"));
         GuiUtil.smallButtonInsets(resetSearchButton);
         resetSearchButton.addActionListener(e -> {
             searchField.setText("");
@@ -407,6 +457,8 @@ public class SettingsDialog extends JDialog implements ActionListener {
         //--------------------------
         // Buttons
         //--------------------------
+        ok.setAccent(ACCENT);
+        cancel.setAccent(new Color(92, 101, 140));
         ok.setMnemonic(KeyEvent.VK_S);
         gbc = makeGbc(2,2,1,1);
         gbc.anchor = GridBagConstraints.EAST;
@@ -1204,7 +1256,8 @@ public class SettingsDialog extends JDialog implements ActionListener {
     //==========================
     // Search
     //==========================
-    private final Color searchHighlightColor = ColorCorrectionNew.offset(getBackground(), 0.8f);
+    private final Color searchHighlightColor = new Color(
+            ACCENT.getRed(), ACCENT.getGreen(), ACCENT.getBlue(), 70);
     private final Map<Component, State> stateBeforeSearch = new HashMap<>();
     
     private static class State {

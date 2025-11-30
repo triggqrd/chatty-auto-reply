@@ -23,7 +23,6 @@ import chatty.util.api.eventsub.payloads.SuspiciousMessagePayload;
 import chatty.util.commands.CustomCommand;
 import chatty.util.commands.Parameters;
 import java.awt.BorderLayout;
-import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Point;
@@ -32,6 +31,7 @@ import java.awt.event.ActionListener;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
 import javax.swing.BorderFactory;
+import javax.swing.JButton;
 import javax.swing.JPanel;
 import javax.swing.JScrollBar;
 import javax.swing.JScrollPane;
@@ -39,12 +39,7 @@ import javax.swing.JSplitPane;
 import javax.swing.Popup;
 import javax.swing.PopupFactory;
 import javax.swing.Timer;
-import javax.swing.border.CompoundBorder;
-import javax.swing.border.EmptyBorder;
 import javax.swing.text.JTextComponent;
-import chatty.gui.components.modern.GradientPanel;
-import chatty.gui.components.modern.ModernButton;
-import chatty.gui.components.modern.RoundedBorder;
 
 /**
  * A single channel window, combining styled text pane, userlist and input box.
@@ -64,8 +59,6 @@ public final class Channel extends JPanel {
     private final ChannelTextPane text;
     private final UserList users;
     private final JSplitPane mainPane;
-    private final JSplitPane logPane;
-    private final AutoReplyLogSidebar logSidebar;
     private final JScrollPane userlist;
     private final JScrollPane west;
     private final StyleServer styleManager;
@@ -82,9 +75,7 @@ public final class Channel extends JPanel {
     
     private ModerationPanel modPanel;
     private Popup modPanelPopup;
-    private final ModernButton modPanelButton;
-    private boolean logSidebarCollapsed;
-    private int lastLogDividerLocation;
+    private final JButton modPanelButton;
 
     public Channel(final Room room, Type type, MainGui main, StyleManager styleManager,
             ContextMenuListener contextMenuListener, boolean insertTop) {
@@ -94,8 +85,6 @@ public final class Channel extends JPanel {
         this.type = type;
         this.room = room;
         setName(room.getDisplayName());
-        setOpaque(false);
-        setBorder(new EmptyBorder(6, 8, 6, 8));
         
         // Text Pane
         text = new ChannelTextPane(main, styleManager, ChannelTextPane.Type.REGULAR, true, insertTop);
@@ -109,14 +98,12 @@ public final class Channel extends JPanel {
         //System.out.println(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         west.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
         west.getVerticalScrollBar().setUnitIncrement(40);
-        west.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 6));
 
-
+        
         // User list
         users = new UserList(contextMenuListener, main.getUserListener(), main.getSettings());
         updateUserlistSettings();
         userlist = new JScrollPane(users);
-        userlist.setBorder(BorderFactory.createEmptyBorder(8, 6, 8, 10));
         
         
         // Split Pane
@@ -130,14 +117,9 @@ public final class Channel extends JPanel {
         input.setCompletionServer(new ChannelCompletion(this, main, input, users));
         input.setCompletionEnabled(main.getSettings().getBoolean("completionEnabled"));
         installLimits(input);
-        input.setBorder(new CompoundBorder(new RoundedBorder(18, new Color(116, 129, 175), new Color(18, 20, 28, 120)), new EmptyBorder(8, 12, 8, 12)));
-        input.setBackground(new Color(14, 16, 26));
-        input.setForeground(Color.WHITE);
         TextSelectionMenu.install(input);
         
-        inputPanel = new GradientPanel(new Color(33, 38, 58, 235), new Color(21, 24, 37, 235), 18);
-        inputPanel.setLayout(new BorderLayout());
-        inputPanel.setBorder(new EmptyBorder(10, 12, 12, 12));
+        inputPanel = new JPanel(new BorderLayout());
         AutoReplyStatusIndicator statusIndicator = new AutoReplyStatusIndicator();
         JPanel statusPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         statusPanel.setOpaque(false);
@@ -145,51 +127,25 @@ public final class Channel extends JPanel {
         inputPanel.add(statusPanel, BorderLayout.NORTH);
         main.configureAutoReplyIndicator(statusIndicator);
         inputPanel.add(input, BorderLayout.CENTER);
-
-        modPanelButton = new ModernButton("Modes");
+        
+        modPanelButton = new JButton("M");
         modPanelButton.setToolTipText("Channel Modes");
         modPanelButton.setVisible(false);
-        modPanelButton.setBorder(new EmptyBorder(6, 12, 6, 12));
         inputPanel.add(modPanelButton, BorderLayout.EAST);
         modPanelButton.addActionListener(e -> {
             openModPanel();
         });
-
-        logSidebar = new AutoReplyLogSidebar(main.getAutoReplyLogStore(), this::toggleLogSidebar);
-        logPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, mainPane, logSidebar);
+        
+        AutoReplyLogSidebar logSidebar = new AutoReplyLogSidebar(main.getAutoReplyLogStore());
+        JSplitPane logPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, mainPane, logSidebar);
         logPane.setResizeWeight(1);
         logPane.setDividerSize(DIVIDER_SIZE);
         logPane.setOneTouchExpandable(true);
         logPane.setDividerLocation(0.82);
-        lastLogDividerLocation = logPane.getDividerLocation();
-        logSidebar.setCollapsed(false);
 
         // Add components
         add(logPane, BorderLayout.CENTER);
         add(inputPanel, BorderLayout.SOUTH);
-    }
-
-    private void toggleLogSidebar() {
-        if (!logSidebarCollapsed) {
-            lastLogDividerLocation = logPane.getDividerLocation();
-            logPane.getRightComponent().setVisible(false);
-            logPane.setDividerSize(0);
-            logPane.setDividerLocation(logPane.getMaximumDividerLocation());
-        }
-        else {
-            logPane.getRightComponent().setVisible(true);
-            logPane.setDividerSize(DIVIDER_SIZE);
-            if (lastLogDividerLocation <= 0 || lastLogDividerLocation >= logPane.getMaximumDividerLocation()) {
-                logPane.setDividerLocation(0.82);
-            }
-            else {
-                logPane.setDividerLocation(lastLogDividerLocation);
-            }
-        }
-        logSidebarCollapsed = !logSidebarCollapsed;
-        logSidebar.setCollapsed(logSidebarCollapsed);
-        logPane.revalidate();
-        logPane.repaint();
     }
     
     public void updateModButton() {

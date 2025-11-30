@@ -1,7 +1,6 @@
 
 package chatty.gui.components.settings;
 
-import chatty.gui.components.modern.RoundedBorder;
 import chatty.gui.components.settings.SettingsDialog.Page;
 import java.awt.Color;
 import java.awt.Component;
@@ -16,7 +15,6 @@ import javax.swing.BorderFactory;
 import javax.swing.JLabel;
 import javax.swing.JTree;
 import javax.swing.border.Border;
-import javax.swing.border.EmptyBorder;
 import javax.swing.event.TreeExpansionEvent;
 import javax.swing.event.TreeWillExpandListener;
 import javax.swing.tree.DefaultMutableTreeNode;
@@ -109,13 +107,7 @@ public class Tree {
     public static class HighlightTreeCellRenderer extends DefaultTreeCellRenderer {
 
         // Border to give text some more space
-        private final Border BORDER = BorderFactory.createEmptyBorder(6, 10, 6, 8);
-        private final Border HIGHLIGHT_BORDER = BorderFactory.createCompoundBorder(
-                new RoundedBorder(14, new Color(255, 255, 255, 60), new Color(0, 0, 0, 40)),
-                new EmptyBorder(4, 8, 4, 6));
-        private final Color selectionColor = new Color(118, 93, 255, 120);
-        private final Color selectionTextColor = new Color(245, 245, 255);
-        private final Color regularTextColor = new Color(224, 228, 241);
+        private final Border BORDER = BorderFactory.createEmptyBorder(0, 3, 0, 1);
         
         private final Set<Object> highlighted = new HashSet<>();
         private final Color highlightColor;
@@ -134,26 +126,15 @@ public class Tree {
             if (c instanceof JLabel) {
                 JLabel label = (JLabel) c;
                 label.setBorder(BORDER);
-                label.setForeground(regularTextColor);
-                label.setOpaque(false);
                 if (value instanceof DefaultMutableTreeNode) {
                     Object userObject = ((DefaultMutableTreeNode) value).getUserObject();
-                    boolean shouldHighlight = highlighted.contains(userObject);
-                    if (sel) {
-                        label.setOpaque(true);
-                        label.setBackground(selectionColor);
-                        label.setBorder(HIGHLIGHT_BORDER);
-                        label.setForeground(selectionTextColor);
-                    }
-                    else if (shouldHighlight) {
+                    if (highlighted.contains(userObject) && !sel) {
                         label.setBackground(highlightColor);
                         label.setOpaque(true);
-                        label.setBorder(HIGHLIGHT_BORDER);
-                        label.setForeground(selectionTextColor);
                     }
                     else {
-                        label.setBorder(BORDER);
-                        label.setBackground(new Color(0,0,0,0));
+                        label.setBackground(null);
+                        label.setOpaque(false);
                     }
                 }
             }

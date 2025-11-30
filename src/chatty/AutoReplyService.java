@@ -207,7 +207,7 @@ public class AutoReplyService implements AutoReplyManager.Listener {
         }
         if (trigger.shouldNotify(defaultNotification)) {
             gui.printSystem(trigger.buildNotificationMessage());
-            gui.triggerCommandNotification(channel, "[Auto Reply] %s", trigger.notificationBody(), false, true);
+            gui.triggerCommandNotification(channel, "[Auto Reply] %s", trigger.notificationBody(), null);
         }
         printAutoReplyMessage(channel, reply);
         playSoundIfConfigured(trigger.resolveSound(defaultSound), trigger.id);

@@ -60,7 +60,7 @@ public class AutoReplyLogStore implements AutoReplyService.Listener {
     }
 
     public List<AutoReplyLogEntry> getEntries() {
-        return Collections.unmodifiableList(entries);
+        return Collections.unmodifiableList(new ArrayList<>(entries));
     }
 
     public void addListener(Listener listener) {

@@ -12,6 +12,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -103,7 +104,8 @@ public class AutoReplyLogSidebar extends JPanel implements AutoReplyLogStore.Lis
 
     @Override
     public void onLogUpdated(List<AutoReplyLogEntry> entries, AutoReplyLogEntry newEntry) {
-        SwingUtilities.invokeLater(() -> rebuild(entries));
+        List<AutoReplyLogEntry> snapshot = new ArrayList<>(entries);
+        SwingUtilities.invokeLater(() -> rebuild(snapshot));
     }
 
     private void rebuild(List<AutoReplyLogEntry> entries) {

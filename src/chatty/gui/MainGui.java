@@ -189,6 +189,7 @@ public class MainGui extends JFrame implements Runnable {
     public final RepeatMsgHelper repeatMsg;
     private final AutoReplyManager autoReplyManager;
     private final AutoReplyLogStore autoReplyLogStore;
+    private boolean autoReplyListenersRegistered;
     private final Set<AutoReplyStatusIndicator> autoReplyIndicators = Collections.newSetFromMap(new WeakHashMap<>());
     private final MsgColorManager msgColorManager;
     private StyleManager styleManager;
@@ -408,11 +409,12 @@ EventLog.setMain(eventLog);
 
     public void registerAutoReplyLogListener() {
         AutoReplyService service = client.getAutoReplyService();
-        if (service != null) {
+        if (service != null && !autoReplyListenersRegistered) {
             service.addListener(autoReplyLogStore);
             if (autoReplyLogDialog != null) {
                 service.addListener(autoReplyLogDialog);
             }
+            autoReplyListenersRegistered = true;
         }
     }
 

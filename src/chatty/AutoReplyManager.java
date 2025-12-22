@@ -10,6 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.logging.Level;
@@ -30,6 +31,7 @@ public class AutoReplyManager {
     public static final String SETTING_DEFAULT_SOUND = "autoReplyDefaultSound";
     public static final String SETTING_DEFAULT_NOTIFICATION = "autoReplyDefaultNotification";
     public static final String SETTING_ENABLED = "autoReplyEnabled";
+    public static final String SETTING_SEQUENTIAL_PROGRESS = "autoReplySequentialProgress";
 
     private final Settings settings;
     private final Object lock = new Object();
@@ -77,6 +79,78 @@ public class AutoReplyManager {
     public AutoReplyConfig getConfig() {
         synchronized (lock) {
             return currentConfig.copy();
+        }
+    }
+
+    public int getSequentialReplyIndex(String triggerId) {
+        if (StringUtil.isNullOrEmpty(triggerId)) {
+            return 0;
+        }
+        synchronized (lock) {
+            @SuppressWarnings("unchecked")
+            Map<String, Long> progress = settings.getMap(SETTING_SEQUENTIAL_PROGRESS);
+            Object value = progress.get(triggerId);
+            if (value instanceof Number) {
+                long number = ((Number) value).longValue();
+                return (int) Math.max(0, number);
+            }
+            if (value instanceof String) {
+                try {
+                    long number = Long.parseLong((String) value);
+                    return (int) Math.max(0, number);
+                }
+                catch (NumberFormatException ex) {
+                    // Ignore and fall through
+                }
+            }
+        }
+        return 0;
+    }
+
+    public void storeSequentialReplyIndex(String triggerId, int index) {
+        if (StringUtil.isNullOrEmpty(triggerId)) {
+            return;
+        }
+        long normalized = Math.max(0, index);
+        synchronized (lock) {
+            @SuppressWarnings("unchecked")
+            Map<String, Long> progress = settings.getMap(SETTING_SEQUENTIAL_PROGRESS);
+            boolean changed;
+            if (normalized == 0) {
+                changed = progress.remove(triggerId) != null;
+            }
+            else {
+                Long newValue = normalized;
+                Long existing = progress.get(triggerId);
+                changed = !newValue.equals(existing);
+                if (changed) {
+                    progress.put(triggerId, newValue);
+                }
+            }
+            if (changed) {
+                settings.setSettingChanged(SETTING_SEQUENTIAL_PROGRESS);
+            }
+        }
+    }
+
+    public void pruneSequentialReplyIndices(Set<String> activeTriggerIds) {
+        synchronized (lock) {
+            @SuppressWarnings("unchecked")
+            Map<String, Long> progress = settings.getMap(SETTING_SEQUENTIAL_PROGRESS);
+            if (progress.isEmpty()) {
+                return;
+            }
+            boolean changed;
+            if (activeTriggerIds == null || activeTriggerIds.isEmpty()) {
+                changed = !progress.isEmpty();
+                progress.clear();
+            }
+            else {
+                changed = progress.keySet().removeIf(id -> !activeTriggerIds.contains(id));
+            }
+            if (changed) {
+                settings.setSettingChanged(SETTING_SEQUENTIAL_PROGRESS);
+            }
         }
     }
 

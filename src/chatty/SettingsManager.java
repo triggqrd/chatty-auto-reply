@@ -681,6 +681,7 @@ public class SettingsManager {
         settings.addString("autoReplyDefaultSound", "");
         settings.addBoolean("autoReplyEnabled", true);
         settings.addList("autoReplyLogEntries", new ArrayList(), Setting.MAP);
+        settings.addMap("autoReplySequentialProgress", new HashMap<>(), Setting.LONG);
 
         // Ignore
         settings.addList("ignore", new ArrayList(), Setting.STRING);

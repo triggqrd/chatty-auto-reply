@@ -204,6 +204,10 @@ public class AutoReplyService implements AutoReplyManager.Listener {
             long cooldown = Math.max(globalCooldownMillis, 0L);
             nextGlobalAvailable = Math.max(nextGlobalAvailable, scheduledTime + cooldown);
             trigger.recordSuccessfulSend(state);
+            if (trigger.replySelection == ReplySelection.SEQUENTIAL) {
+                int normalizedIndex = state.normalizeSequentialIndex(trigger.replies.size());
+                manager.storeSequentialReplyIndex(trigger.id, normalizedIndex);
+            }
         }
         if (trigger.shouldNotify(defaultNotification)) {
             gui.printSystem(trigger.buildNotificationMessage());
@@ -255,6 +259,14 @@ public class AutoReplyService implements AutoReplyManager.Listener {
         AutoReplyProfile profile = resolveActiveProfile(config);
         List<PreparedTrigger> prepared = new ArrayList<>();
         Map<String, TriggerState> existing;
+        Set<String> configuredSequentialTriggers = new HashSet<>();
+        for (AutoReplyProfile availableProfile : config.getProfiles()) {
+            for (AutoReplyTrigger trigger : availableProfile.getTriggers()) {
+                if (trigger.getReplySelection() == ReplySelection.SEQUENTIAL) {
+                    configuredSequentialTriggers.add(trigger.getId());
+                }
+            }
+        }
         synchronized (lock) {
             existing = new HashMap<>(stateById);
             stateById.clear();
@@ -265,15 +277,28 @@ public class AutoReplyService implements AutoReplyManager.Listener {
                 if (!trigger.isEnabled()) {
                     continue;
                 }
-                PreparedTrigger preparedTrigger = PreparedTrigger.create(trigger, existing.get(trigger.getId()));
+                TriggerState state = existing.get(trigger.getId());
+                if (state == null) {
+                    state = new TriggerState();
+                    if (trigger.getReplySelection() == ReplySelection.SEQUENTIAL) {
+                        state.setSequentialIndex(manager.getSequentialReplyIndex(trigger.getId()));
+                    }
+                }
+                PreparedTrigger preparedTrigger = PreparedTrigger.create(trigger, state);
                 if (preparedTrigger != null) {
                     prepared.add(preparedTrigger);
                     synchronized (lock) {
                         stateById.put(preparedTrigger.id, preparedTrigger.state);
                     }
+                    if (trigger.getReplySelection() == ReplySelection.SEQUENTIAL) {
+                        int normalizedIndex = state.normalizeSequentialIndex(preparedTrigger.replies.size());
+                        manager.storeSequentialReplyIndex(preparedTrigger.id, normalizedIndex);
+                    }
                 }
             }
         }
+
+        manager.pruneSequentialReplyIndices(configuredSequentialTriggers);
 
         long globalCooldown = Math.max(config.getGlobalCooldown(), COOLDOWN_SEC);
         synchronized (lock) {
@@ -398,7 +423,7 @@ public class AutoReplyService implements AutoReplyManager.Listener {
             this.loopReplies = loopReplies;
         }
 
-        private static PreparedTrigger create(AutoReplyTrigger trigger, TriggerState previousState) {
+        private static PreparedTrigger create(AutoReplyTrigger trigger, TriggerState state) {
             if (StringUtil.isNullOrEmpty(trigger.getPattern())) {
                 return null;
             }
@@ -431,7 +456,9 @@ public class AutoReplyService implements AutoReplyManager.Listener {
             long requiredMentions = trigger.getMinMentionsPerUser() > 0 ? trigger.getMinMentionsPerUser() : 1L;
             long minDelay = Math.max(0L, trigger.getMinDelayMillis());
             long maxDelay = Math.max(minDelay, trigger.getMaxDelayMillis());
-            TriggerState state = previousState != null ? previousState : new TriggerState();
+            if (state == null) {
+                state = new TriggerState();
+            }
 
             return new PreparedTrigger(trigger.getId(), regex, plain, replies, allow,
                     trigger.isNotificationEnabled(), trigger.getSound(), trigger.getPattern(), cooldown,
@@ -577,8 +604,8 @@ public class AutoReplyService implements AutoReplyManager.Listener {
         private long nextAvailableTime = 0L;
         private boolean pending;
         /**
-         * Tracks sequential reply progression. This is kept in memory only and resets when
-         * the trigger state is recreated (e.g., when the app restarts or the profile is reloaded).
+         * Tracks sequential reply progression. This is kept in memory during runtime and
+         * synchronized to {@link AutoReplyManager} so it can be restored across reloads.
          */
         private int sequentialIndex;
 
@@ -626,6 +653,14 @@ public class AutoReplyService implements AutoReplyManager.Listener {
 
         private void reset() {
             matches.clear();
+        }
+
+        private void setSequentialIndex(int index) {
+            sequentialIndex = Math.max(0, index);
+        }
+
+        private int normalizeSequentialIndex(int totalReplies) {
+            return getCurrentSequentialIndex(totalReplies);
         }
 
         private int getCurrentSequentialIndex(int totalReplies) {

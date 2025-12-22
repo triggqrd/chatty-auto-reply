@@ -129,6 +129,7 @@ public class AutoReplyManager {
             }
             if (changed) {
                 settings.setSettingChanged(SETTING_SEQUENTIAL_PROGRESS);
+                persistSequentialProgress();
             }
         }
     }
@@ -150,7 +151,17 @@ public class AutoReplyManager {
             }
             if (changed) {
                 settings.setSettingChanged(SETTING_SEQUENTIAL_PROGRESS);
+                persistSequentialProgress();
             }
+        }
+    }
+
+    private void persistSequentialProgress() {
+        try {
+            settings.saveSettingsToJson(false);
+        }
+        catch (Exception ex) {
+            LOGGER.log(Level.WARNING, "Failed to persist sequential reply progress", ex);
         }
     }
 

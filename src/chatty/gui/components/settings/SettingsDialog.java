@@ -137,6 +137,10 @@ public class SettingsDialog extends JDialog implements ActionListener {
     private final MainGui owner;
     
     private final MatchingPresets matchingPresets;
+
+    MainGui getOwner() {
+        return owner;
+    }
     
     public enum Page {
         MAIN("Main", Language.getString("settings.page.main")),
@@ -311,7 +315,7 @@ public class SettingsDialog extends JDialog implements ActionListener {
         panels.put(Page.HIGHLIGHT, new HighlightSettings(this));
         panels.put(Page.IGNORE, new IgnoreSettings(this));
         panels.put(Page.FILTER, new FilterSettings(this));
-        panels.put(Page.AUTO_REPLY, new AutoReplySettings(this));
+        panels.put(Page.AUTO_REPLY, new AutoReplySettings(this, owner.getAutoReplyManager()));
         panels.put(Page.CUSTOM_TABS, new RoutingSettings(this));
         panels.put(Page.SHARED_CHAT, new SharedChatSettings(this));
         panels.put(Page.MSGCOLORS, new MsgColorSettings(this));

@@ -6,6 +6,7 @@ import chatty.AutoReplyManager.AutoReplyProfile;
 import chatty.AutoReplyManager.AutoReplyTrigger;
 import chatty.AutoReplyManager.PatternType;
 import chatty.AutoReplyManager.ReplySelection;
+import chatty.Helper;
 import chatty.gui.GuiUtil;
 import chatty.lang.Language;
 import chatty.util.StringUtil;
@@ -40,6 +41,7 @@ import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.ListSelectionModel;
 import javax.swing.SpinnerNumberModel;
+import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
@@ -51,6 +53,7 @@ import javax.swing.event.ListSelectionListener;
 public class AutoReplySettings extends SettingsPanel {
 
     private final SettingsDialog dialog;
+    private final AutoReplyManager autoReplyManager;
 
     private AutoReplyConfig config = new AutoReplyConfig();
 
@@ -65,15 +68,20 @@ public class AutoReplySettings extends SettingsPanel {
     private final JPanel triggerEditorsPanel = new JPanel();
     private final List<TriggerEditorPanel> triggerEditors = new ArrayList<>();
     private final JLabel validationLabel = new JLabel();
+    private final JTextField sequentialChannelField = new JTextField();
+    private final JButton resetAllSequentialButton = new JButton(Language.getString("settings.autoReply.sequential.resetAll"));
 
-    public AutoReplySettings(SettingsDialog dialog) {
+    public AutoReplySettings(SettingsDialog dialog, AutoReplyManager autoReplyManager) {
         super(true);
         this.dialog = dialog;
+        this.autoReplyManager = autoReplyManager;
         buildUi();
         installListeners();
         updateActiveProfileCombo();
         validationLabel.setForeground(Color.GRAY);
         validationLabel.setText(Language.getString("settings.autoReply.triggers.help"));
+        initSequentialChannel();
+        autoReplyManager.addSequentialProgressListener(this::refreshSequentialIndicators);
     }
 
     private void buildUi() {
@@ -213,6 +221,28 @@ public class AutoReplySettings extends SettingsPanel {
         JPanel panel = createTitledPanel(Language.getString("settings.section.autoReplyTriggers"));
         panel.setLayout(new GridBagLayout());
 
+        JPanel sequentialControls = new JPanel(new GridBagLayout());
+        sequentialControls.setOpaque(false);
+        GridBagConstraints controlsGbc = new GridBagConstraints();
+        controlsGbc.insets = new Insets(0, 3, 0, 3);
+        controlsGbc.anchor = GridBagConstraints.WEST;
+        controlsGbc.gridx = 0;
+        sequentialControls.add(new JLabel(Language.getString("settings.autoReply.sequential.channel")), controlsGbc);
+        controlsGbc.gridx++;
+        controlsGbc.fill = GridBagConstraints.HORIZONTAL;
+        controlsGbc.weightx = 1;
+        sequentialChannelField.setPreferredSize(new Dimension(140, sequentialChannelField.getPreferredSize().height));
+        sequentialControls.add(sequentialChannelField, controlsGbc);
+        controlsGbc.gridx++;
+        controlsGbc.fill = GridBagConstraints.NONE;
+        controlsGbc.weightx = 0;
+        GuiUtil.smallButtonInsets(resetAllSequentialButton);
+        resetAllSequentialButton.addActionListener(e -> {
+            autoReplyManager.resetAllSequentialProgress();
+            refreshSequentialIndicators();
+        });
+        sequentialControls.add(resetAllSequentialButton, controlsGbc);
+
         triggerEditorsPanel.setLayout(new BoxLayout(triggerEditorsPanel, BoxLayout.Y_AXIS));
         triggerEditorsPanel.setOpaque(false);
         JScrollPane triggerScroll = new JScrollPane(triggerEditorsPanel);
@@ -235,6 +265,12 @@ public class AutoReplySettings extends SettingsPanel {
         gbc.weighty = 1;
         gbc.fill = GridBagConstraints.BOTH;
         panel.add(triggerScroll, gbc);
+
+        gbc.gridy++;
+        gbc.weighty = 0;
+        gbc.insets = new Insets(6, 0, 0, 0);
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(sequentialControls, gbc);
 
         JPanel buttons = new JPanel();
         JButton add = new JButton(Language.getString("settings.autoReply.triggers.add"));
@@ -264,6 +300,8 @@ public class AutoReplySettings extends SettingsPanel {
                 showProfile(profileList.getSelectedValue());
             }
         });
+
+        sequentialChannelField.getDocument().addDocumentListener(documentListener(this::refreshSequentialIndicators));
 
         defaultSoundCombo.addActionListener(e -> updateDefaultSound());
         installComboEditorListener(defaultSoundCombo, this::updateDefaultSound);
@@ -332,6 +370,7 @@ public class AutoReplySettings extends SettingsPanel {
         defaultNotificationCheck.setSelected(this.config.isDefaultNotification());
         String defaultSound = this.config.getDefaultSound();
         defaultSoundCombo.setSelectedItem(defaultSound == null ? "" : defaultSound);
+        refreshSequentialIndicators();
     }
 
     public AutoReplyConfig getData() {
@@ -423,6 +462,7 @@ public class AutoReplySettings extends SettingsPanel {
         triggerEditorsPanel.revalidate();
         triggerEditorsPanel.repaint();
         refreshValidation();
+        refreshSequentialIndicators();
     }
 
     private void addTriggerEditor(AutoReplyProfile profile, AutoReplyTrigger trigger) {
@@ -489,6 +529,67 @@ public class AutoReplySettings extends SettingsPanel {
         }
         validationLabel.setForeground(Color.GRAY);
         validationLabel.setText(Language.getString("settings.autoReply.triggers.help"));
+    }
+
+    private void initSequentialChannel() {
+        if (dialog == null || dialog.getOwner() == null) {
+            return;
+        }
+        String channel = dialog.getOwner().getActiveRoom().getChannel();
+        if (!StringUtil.isNullOrEmpty(channel)) {
+            sequentialChannelField.setText(channel);
+        }
+    }
+
+    private String getSequentialChannel() {
+        String raw = sequentialChannelField.getText();
+        if (StringUtil.isNullOrEmpty(raw)) {
+            return null;
+        }
+        return Helper.toChannel(raw);
+    }
+
+    private void refreshSequentialIndicators() {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(this::refreshSequentialIndicators);
+            return;
+        }
+        for (TriggerEditorPanel editor : triggerEditors) {
+            editor.updateSequentialIndicator();
+        }
+    }
+
+    private String buildSequentialIndicatorText(AutoReplyTrigger trigger) {
+        if (trigger == null || trigger.getReplySelection() != ReplySelection.SEQUENTIAL) {
+            return "";
+        }
+        String channel = getSequentialChannel();
+        if (StringUtil.isNullOrEmpty(channel)) {
+            return Language.getString("settings.autoReply.sequential.nextReply.none");
+        }
+        List<String> replies = parseReplies(trigger.getReply());
+        AutoReplyManager.SequentialProgress progress = autoReplyManager.getSequentialProgress(channel, trigger.getId());
+        AutoReplyManager.SequentialProgress normalized = AutoReplyManager.normalizeSequentialProgress(progress, replies);
+        String reply = normalized.getReply();
+        if (StringUtil.isNullOrEmpty(reply)) {
+            return Language.getString("settings.autoReply.sequential.nextReply.empty");
+        }
+        String shortened = StringUtil.shortenTo(reply, 80);
+        return Language.getString("settings.autoReply.sequential.nextReply", shortened);
+    }
+
+    private static List<String> parseReplies(String text) {
+        if (StringUtil.isNullOrEmpty(text)) {
+            return new ArrayList<>();
+        }
+        List<String> result = new ArrayList<>();
+        for (String line : StringUtil.splitLines(text)) {
+            String trimmed = line.trim();
+            if (!trimmed.isEmpty()) {
+                result.add(trimmed);
+            }
+        }
+        return result;
     }
 
     private String validateTrigger(AutoReplyTrigger trigger) {
@@ -647,6 +748,9 @@ public class AutoReplySettings extends SettingsPanel {
         private final JRadioButton randomReplyMode;
         private final JRadioButton sequentialReplyMode;
         private final JCheckBox loopRepliesCheck;
+        private final JLabel sequentialNextLabel;
+        private final JButton resetSequentialButton;
+        private final JPanel sequentialRow;
 
         TriggerEditorPanel(AutoReplyProfile profile, AutoReplyTrigger trigger) {
             this.profile = profile;
@@ -720,6 +824,7 @@ public class AutoReplySettings extends SettingsPanel {
             repliesArea.getDocument().addDocumentListener(documentListener(() -> {
                 trigger.setReply(repliesArea.getText());
                 refreshValidation();
+                updateSequentialIndicator();
             }));
             JScrollPane repliesScroll = new JScrollPane(repliesArea);
             repliesScroll.setPreferredSize(new Dimension(220, 70));
@@ -753,6 +858,7 @@ public class AutoReplySettings extends SettingsPanel {
                         ? ReplySelection.SEQUENTIAL
                         : ReplySelection.RANDOM);
                 loopRepliesCheck.setEnabled(sequentialReplyMode.isSelected());
+                updateSequentialIndicator();
             };
             randomReplyMode.addActionListener(replyModeListener);
             sequentialReplyMode.addActionListener(replyModeListener);
@@ -780,6 +886,35 @@ public class AutoReplySettings extends SettingsPanel {
             gbc.weightx = 1;
             gbc.fill = GridBagConstraints.HORIZONTAL;
             add(replyModeRow, gbc);
+
+            sequentialRow = new JPanel(new GridBagLayout());
+            sequentialRow.setOpaque(false);
+            GridBagConstraints seqGbc = new GridBagConstraints();
+            seqGbc.insets = new Insets(0, 4, 0, 4);
+            seqGbc.gridy = 0;
+            seqGbc.anchor = GridBagConstraints.WEST;
+            seqGbc.gridx = 0;
+            sequentialNextLabel = new JLabel();
+            sequentialNextLabel.setForeground(Color.GRAY);
+            sequentialRow.add(sequentialNextLabel, seqGbc);
+            seqGbc.gridx = 1;
+            resetSequentialButton = new JButton(Language.getString("settings.autoReply.sequential.reset"));
+            GuiUtil.smallButtonInsets(resetSequentialButton);
+            resetSequentialButton.addActionListener(e -> {
+                String channel = getSequentialChannel();
+                if (!StringUtil.isNullOrEmpty(channel)) {
+                    autoReplyManager.resetSequentialProgress(channel, trigger.getId());
+                    updateSequentialIndicator();
+                }
+            });
+            sequentialRow.add(resetSequentialButton, seqGbc);
+
+            gbc.gridy = 3;
+            gbc.gridx = 0;
+            gbc.gridwidth = 5;
+            gbc.weightx = 1;
+            gbc.fill = GridBagConstraints.HORIZONTAL;
+            add(sequentialRow, gbc);
 
             long minDelay = trigger.getMinDelayMillis();
             long maxDelay = Math.max(trigger.getMaxDelayMillis(), minDelay);
@@ -811,7 +946,7 @@ public class AutoReplySettings extends SettingsPanel {
             addLabeledSpinner(timingRow, Language.getString("settings.autoReply.trigger.maxDelay"), maxDelaySpinner, 2);
             addLabeledSpinner(timingRow, Language.getString("settings.autoReply.trigger.cooldown"), cooldownSpinner, 4);
 
-            gbc.gridy = 3;
+            gbc.gridy = 4;
             gbc.gridx = 0;
             gbc.gridwidth = 5;
             gbc.weightx = 1;
@@ -843,10 +978,10 @@ public class AutoReplySettings extends SettingsPanel {
             addLabeledSpinner(thresholdRow, Language.getString("settings.autoReply.trigger.minMentionsPerUser"), minMentionsSpinner, 2);
             addLabeledSpinner(thresholdRow, Language.getString("settings.autoReply.trigger.timeWindow"), timeWindowSpinner, 4);
 
-            gbc.gridy = 4;
+            gbc.gridy = 5;
             add(thresholdRow, gbc);
 
-            gbc.gridy = 5;
+            gbc.gridy = 6;
             gbc.gridwidth = 1;
             gbc.gridx = 0;
             gbc.anchor = GridBagConstraints.WEST;
@@ -878,6 +1013,20 @@ public class AutoReplySettings extends SettingsPanel {
             gbc.gridx = 4;
             gbc.fill = GridBagConstraints.HORIZONTAL;
             add(soundCombo, gbc);
+
+            updateSequentialIndicator();
+        }
+
+        private void updateSequentialIndicator() {
+            boolean sequential = trigger.getReplySelection() == ReplySelection.SEQUENTIAL;
+            sequentialRow.setVisible(sequential);
+            sequentialNextLabel.setVisible(sequential);
+            resetSequentialButton.setVisible(sequential);
+            if (!sequential) {
+                return;
+            }
+            sequentialNextLabel.setText(buildSequentialIndicatorText(trigger));
+            resetSequentialButton.setEnabled(!StringUtil.isNullOrEmpty(getSequentialChannel()));
         }
 
         private void addLabeledSpinner(JPanel panel, String label, JSpinner spinner, int gridx) {

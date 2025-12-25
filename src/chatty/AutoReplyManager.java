@@ -1,5 +1,6 @@
 package chatty;
 
+import chatty.Helper;
 import chatty.util.StringUtil;
 import chatty.util.settings.SettingChangeListener;
 import chatty.util.settings.Settings;
@@ -32,10 +33,14 @@ public class AutoReplyManager {
     public static final String SETTING_DEFAULT_NOTIFICATION = "autoReplyDefaultNotification";
     public static final String SETTING_ENABLED = "autoReplyEnabled";
     public static final String SETTING_SEQUENTIAL_PROGRESS = "autoReplySequentialProgress";
+    private static final String SEQUENTIAL_KEY_SEPARATOR = "|";
+    private static final String SEQUENTIAL_PROGRESS_INDEX = "index";
+    private static final String SEQUENTIAL_PROGRESS_REPLY = "reply";
 
     private final Settings settings;
     private final Object lock = new Object();
     private final List<Listener> listeners = new CopyOnWriteArrayList<>();
+    private final List<SequentialProgressListener> sequentialProgressListeners = new CopyOnWriteArrayList<>();
 
     private AutoReplyConfig currentConfig = new AutoReplyConfig();
     private boolean suppressReload;
@@ -82,62 +87,87 @@ public class AutoReplyManager {
         }
     }
 
-    public int getSequentialReplyIndex(String triggerId) {
-        if (StringUtil.isNullOrEmpty(triggerId)) {
-            return 0;
+    public SequentialProgress getSequentialProgress(String channel, String triggerId) {
+        String key = buildSequentialKey(channel, triggerId);
+        if (StringUtil.isNullOrEmpty(key)) {
+            return new SequentialProgress(0, null);
         }
         synchronized (lock) {
-            @SuppressWarnings("unchecked")
-            Map<String, Long> progress = settings.getMap(SETTING_SEQUENTIAL_PROGRESS);
-            Object value = progress.get(triggerId);
-            if (value instanceof Number) {
-                long number = ((Number) value).longValue();
-                return (int) Math.max(0, number);
+            Map<String, Object> progress = getSequentialProgressMap();
+            SequentialProgress value = parseSequentialProgress(progress.get(key));
+            if (value != null) {
+                return value;
             }
-            if (value instanceof String) {
-                try {
-                    long number = Long.parseLong((String) value);
-                    return (int) Math.max(0, number);
-                }
-                catch (NumberFormatException ex) {
-                    // Ignore and fall through
-                }
+            SequentialProgress legacy = parseSequentialProgress(progress.get(triggerId));
+            if (legacy != null) {
+                return legacy;
             }
         }
-        return 0;
+        return new SequentialProgress(0, null);
     }
 
-    public void storeSequentialReplyIndex(String triggerId, int index) {
-        if (StringUtil.isNullOrEmpty(triggerId)) {
+    public void storeSequentialProgress(String channel, String triggerId, int index, String reply) {
+        String key = buildSequentialKey(channel, triggerId);
+        if (StringUtil.isNullOrEmpty(key)) {
             return;
         }
-        long normalized = Math.max(0, index);
+        SequentialProgress update = new SequentialProgress(Math.max(0, index), reply);
         synchronized (lock) {
-            @SuppressWarnings("unchecked")
-            Map<String, Long> progress = settings.getMap(SETTING_SEQUENTIAL_PROGRESS);
-            boolean changed;
-            if (normalized == 0) {
-                changed = progress.remove(triggerId) != null;
+            Map<String, Object> progress = getSequentialProgressMap();
+            SequentialProgress existing = parseSequentialProgress(progress.get(key));
+            if (progressEquals(existing, update)) {
+                return;
+            }
+            if (update.getReply() == null && update.getIndex() == 0) {
+                progress.remove(key);
             }
             else {
-                Long newValue = normalized;
-                Long existing = progress.get(triggerId);
-                changed = !newValue.equals(existing);
-                if (changed) {
-                    progress.put(triggerId, newValue);
-                }
+                progress.put(key, toSequentialProgressMap(update));
             }
+            settings.setSettingChanged(SETTING_SEQUENTIAL_PROGRESS);
+            persistSequentialProgress();
+        }
+        notifySequentialProgressListeners();
+    }
+
+    public void resetSequentialProgress(String channel, String triggerId) {
+        String key = buildSequentialKey(channel, triggerId);
+        if (StringUtil.isNullOrEmpty(key)) {
+            return;
+        }
+        boolean changed;
+        synchronized (lock) {
+            Map<String, Object> progress = getSequentialProgressMap();
+            changed = progress.remove(key) != null;
             if (changed) {
                 settings.setSettingChanged(SETTING_SEQUENTIAL_PROGRESS);
                 persistSequentialProgress();
             }
         }
+        if (changed) {
+            notifySequentialProgressListeners();
+        }
+    }
+
+    public void resetAllSequentialProgress() {
+        boolean changed = false;
+        synchronized (lock) {
+            Map<String, Object> progress = getSequentialProgressMap();
+            if (!progress.isEmpty()) {
+                progress.clear();
+                settings.setSettingChanged(SETTING_SEQUENTIAL_PROGRESS);
+                persistSequentialProgress();
+                changed = true;
+            }
+        }
+        if (changed) {
+            notifySequentialProgressListeners();
+        }
     }
 
     public void pruneSequentialReplyIndices(Set<String> activeTriggerIds) {
         synchronized (lock) {
-            @SuppressWarnings("unchecked")
-            Map<String, Long> progress = settings.getMap(SETTING_SEQUENTIAL_PROGRESS);
+            Map<String, Object> progress = getSequentialProgressMap();
             if (progress.isEmpty()) {
                 return;
             }
@@ -147,12 +177,44 @@ public class AutoReplyManager {
                 progress.clear();
             }
             else {
-                changed = progress.keySet().removeIf(id -> !activeTriggerIds.contains(id));
+                changed = progress.keySet().removeIf(key -> !activeTriggerIds.contains(extractTriggerId(key)));
             }
             if (changed) {
                 settings.setSettingChanged(SETTING_SEQUENTIAL_PROGRESS);
                 persistSequentialProgress();
             }
+        }
+    }
+
+    public void reconcileSequentialProgress(String triggerId, List<String> replies) {
+        if (StringUtil.isNullOrEmpty(triggerId)) {
+            return;
+        }
+        boolean changed = false;
+        synchronized (lock) {
+            Map<String, Object> progress = getSequentialProgressMap();
+            if (progress.isEmpty()) {
+                return;
+            }
+            for (Map.Entry<String, Object> entry : progress.entrySet()) {
+                String key = entry.getKey();
+                if (!triggerId.equals(extractTriggerId(key))) {
+                    continue;
+                }
+                SequentialProgress current = parseSequentialProgress(entry.getValue());
+                SequentialProgress normalized = normalizeSequentialProgress(current, replies);
+                if (!progressEquals(current, normalized)) {
+                    entry.setValue(toSequentialProgressMap(normalized));
+                    changed = true;
+                }
+            }
+            if (changed) {
+                settings.setSettingChanged(SETTING_SEQUENTIAL_PROGRESS);
+                persistSequentialProgress();
+            }
+        }
+        if (changed) {
+            notifySequentialProgressListeners();
         }
     }
 
@@ -182,6 +244,16 @@ public class AutoReplyManager {
         notifyListeners(copy.copy());
     }
 
+    public void addSequentialProgressListener(SequentialProgressListener listener) {
+        if (listener != null) {
+            sequentialProgressListeners.add(listener);
+        }
+    }
+
+    public void removeSequentialProgressListener(SequentialProgressListener listener) {
+        sequentialProgressListeners.remove(listener);
+    }
+
     private void reloadFromSettings() {
         AutoReplyConfig config = loadConfigFromSettings();
         synchronized (lock) {
@@ -197,6 +269,17 @@ public class AutoReplyManager {
             }
             catch (Exception ex) {
                 LOGGER.log(Level.WARNING, "Error notifying auto reply listener", ex);
+            }
+        }
+    }
+
+    private void notifySequentialProgressListeners() {
+        for (SequentialProgressListener listener : sequentialProgressListeners) {
+            try {
+                listener.sequentialProgressUpdated();
+            }
+            catch (Exception ex) {
+                LOGGER.log(Level.WARNING, "Error notifying sequential progress listener", ex);
             }
         }
     }
@@ -228,6 +311,163 @@ public class AutoReplyManager {
         config.defaultSound = normalize(defaultSound);
         config.enabled = settings.getBoolean(SETTING_ENABLED);
         return config;
+    }
+
+    private Map<String, Object> getSequentialProgressMap() {
+        @SuppressWarnings("unchecked")
+        Map<String, Object> progress = settings.getMap(SETTING_SEQUENTIAL_PROGRESS);
+        return progress;
+    }
+
+    private String buildSequentialKey(String channel, String triggerId) {
+        if (StringUtil.isNullOrEmpty(triggerId)) {
+            return null;
+        }
+        String normalizedChannel = normalizeChannel(channel);
+        if (StringUtil.isNullOrEmpty(normalizedChannel)) {
+            return null;
+        }
+        return normalizedChannel + SEQUENTIAL_KEY_SEPARATOR + triggerId;
+    }
+
+    private String normalizeChannel(String channel) {
+        return Helper.toChannel(channel);
+    }
+
+    private String extractTriggerId(String key) {
+        if (StringUtil.isNullOrEmpty(key)) {
+            return "";
+        }
+        int separator = key.lastIndexOf(SEQUENTIAL_KEY_SEPARATOR);
+        if (separator < 0) {
+            return key;
+        }
+        return key.substring(separator + 1);
+    }
+
+    private SequentialProgress parseSequentialProgress(Object value) {
+        if (value instanceof Map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> map = (Map<String, Object>) value;
+            int index = parseProgressIndex(map.get(SEQUENTIAL_PROGRESS_INDEX));
+            String reply = parseProgressReply(map.get(SEQUENTIAL_PROGRESS_REPLY));
+            return new SequentialProgress(index, reply);
+        }
+        if (value instanceof Number) {
+            int index = (int) Math.max(0, ((Number) value).longValue());
+            return new SequentialProgress(index, null);
+        }
+        if (value instanceof String) {
+            try {
+                long number = Long.parseLong((String) value);
+                return new SequentialProgress((int) Math.max(0, number), null);
+            }
+            catch (NumberFormatException ex) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private int parseProgressIndex(Object value) {
+        if (value instanceof Number) {
+            return (int) Math.max(0, ((Number) value).longValue());
+        }
+        if (value instanceof String) {
+            try {
+                return (int) Math.max(0, Long.parseLong((String) value));
+            }
+            catch (NumberFormatException ex) {
+                return 0;
+            }
+        }
+        return 0;
+    }
+
+    private String parseProgressReply(Object value) {
+        if (value instanceof String) {
+            String reply = ((String) value).trim();
+            return reply.isEmpty() ? null : reply;
+        }
+        return null;
+    }
+
+    private Map<String, Object> toSequentialProgressMap(SequentialProgress progress) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put(SEQUENTIAL_PROGRESS_INDEX, progress.getIndex());
+        if (!StringUtil.isNullOrEmpty(progress.getReply())) {
+            map.put(SEQUENTIAL_PROGRESS_REPLY, progress.getReply());
+        }
+        return map;
+    }
+
+    private boolean progressEquals(SequentialProgress left, SequentialProgress right) {
+        if (left == null && right == null) {
+            return true;
+        }
+        if (left == null || right == null) {
+            return false;
+        }
+        return left.getIndex() == right.getIndex()
+                && Objects.equals(left.getReply(), right.getReply());
+    }
+
+    public static SequentialProgress normalizeSequentialProgress(SequentialProgress progress, List<String> replies) {
+        if (replies == null || replies.isEmpty()) {
+            return new SequentialProgress(0, null);
+        }
+        int total = replies.size();
+        int index = progress == null ? 0 : Math.max(0, progress.getIndex());
+        String reply = progress == null ? null : progress.getReply();
+        int resolvedIndex = resolveSequentialIndex(replies, index, reply);
+        String resolvedReply = replies.get(resolvedIndex);
+        return new SequentialProgress(resolvedIndex, resolvedReply);
+    }
+
+    private static int resolveSequentialIndex(List<String> replies, int index, String reply) {
+        int total = replies.size();
+        if (total == 0) {
+            return 0;
+        }
+        int normalizedIndex = Math.max(0, Math.min(index, total - 1));
+        if (StringUtil.isNullOrEmpty(reply)) {
+            return normalizedIndex;
+        }
+        int bestIndex = -1;
+        int bestDistance = Integer.MAX_VALUE;
+        for (int i = 0; i < total; i++) {
+            if (!reply.equals(replies.get(i))) {
+                continue;
+            }
+            int distance = Math.abs(i - normalizedIndex);
+            if (distance < bestDistance) {
+                bestIndex = i;
+                bestDistance = distance;
+            }
+        }
+        return bestIndex >= 0 ? bestIndex : normalizedIndex;
+    }
+
+    public interface SequentialProgressListener {
+        void sequentialProgressUpdated();
+    }
+
+    public static final class SequentialProgress {
+        private final int index;
+        private final String reply;
+
+        public SequentialProgress(int index, String reply) {
+            this.index = Math.max(0, index);
+            this.reply = reply;
+        }
+
+        public int getIndex() {
+            return index;
+        }
+
+        public String getReply() {
+            return reply;
+        }
     }
 
     private void writeSettings(AutoReplyConfig config) {

@@ -136,6 +136,10 @@ public class AutoReplyService implements AutoReplyManager.Listener {
             if (state == null) {
                 continue;
             }
+            String channel = user.getChannel();
+            if (trigger.replySelection == ReplySelection.SEQUENTIAL) {
+                state.ensureSequentialProgress(channel, trigger.id, manager);
+            }
 
             state.recordMatch(user.getName(), now, trigger.requiredMentionsPerUser,
                     trigger.timeWindowMillis, context.recipientMention, context.directMention);
@@ -152,13 +156,13 @@ public class AutoReplyService implements AutoReplyManager.Listener {
                 continue;
             }
 
-            String reply = trigger.chooseReply(state);
+            String reply = trigger.chooseReply(state, channel);
             if (StringUtil.isNullOrEmpty(reply)) {
                 state.reset();
                 continue;
             }
 
-            scheduleAutoReply(trigger, state, user.getChannel(), reply, user.getName(), now);
+            scheduleAutoReply(trigger, state, channel, reply, user.getName(), now);
             break;
         }
     }
@@ -203,10 +207,10 @@ public class AutoReplyService implements AutoReplyManager.Listener {
             state.markCooldown(scheduledTime + trigger.cooldownMillis);
             long cooldown = Math.max(globalCooldownMillis, 0L);
             nextGlobalAvailable = Math.max(nextGlobalAvailable, scheduledTime + cooldown);
-            trigger.recordSuccessfulSend(state);
+            trigger.recordSuccessfulSend(state, channel);
             if (trigger.replySelection == ReplySelection.SEQUENTIAL) {
-                int normalizedIndex = state.normalizeSequentialIndex(trigger.replies.size());
-                manager.storeSequentialReplyIndex(trigger.id, normalizedIndex);
+                AutoReplyManager.SequentialProgress progress = state.getSequentialProgress(channel, trigger.replies);
+                manager.storeSequentialProgress(channel, trigger.id, progress.getIndex(), progress.getReply());
             }
         }
         if (trigger.shouldNotify(defaultNotification)) {
@@ -280,9 +284,6 @@ public class AutoReplyService implements AutoReplyManager.Listener {
                 TriggerState state = existing.get(trigger.getId());
                 if (state == null) {
                     state = new TriggerState();
-                    if (trigger.getReplySelection() == ReplySelection.SEQUENTIAL) {
-                        state.setSequentialIndex(manager.getSequentialReplyIndex(trigger.getId()));
-                    }
                 }
                 PreparedTrigger preparedTrigger = PreparedTrigger.create(trigger, state);
                 if (preparedTrigger != null) {
@@ -291,8 +292,7 @@ public class AutoReplyService implements AutoReplyManager.Listener {
                         stateById.put(preparedTrigger.id, preparedTrigger.state);
                     }
                     if (trigger.getReplySelection() == ReplySelection.SEQUENTIAL) {
-                        int normalizedIndex = state.normalizeSequentialIndex(preparedTrigger.replies.size());
-                        manager.storeSequentialReplyIndex(preparedTrigger.id, normalizedIndex);
+                        manager.reconcileSequentialProgress(preparedTrigger.id, preparedTrigger.replies);
                     }
                 }
             }
@@ -511,22 +511,22 @@ public class AutoReplyService implements AutoReplyManager.Listener {
             return state != null ? state : this.state;
         }
 
-        private String chooseReply(TriggerState state) {
+        private String chooseReply(TriggerState state, String channel) {
             List<String> pool = replies;
             if (pool.isEmpty()) {
                 return null;
             }
             if (replySelection == ReplySelection.SEQUENTIAL) {
-                int index = state.getCurrentSequentialIndex(pool.size());
-                return pool.get(Math.min(index, pool.size() - 1));
+                int index = state.getCurrentSequentialIndex(channel, pool);
+                return pool.get(index);
             }
             int index = ThreadLocalRandom.current().nextInt(pool.size());
             return pool.get(index);
         }
 
-        private void recordSuccessfulSend(TriggerState state) {
+        private void recordSuccessfulSend(TriggerState state, String channel) {
             if (replySelection == ReplySelection.SEQUENTIAL) {
-                state.advanceSequentialIndex(replies.size(), loopReplies);
+                state.advanceSequentialIndex(channel, replies, loopReplies);
             }
         }
 
@@ -604,10 +604,10 @@ public class AutoReplyService implements AutoReplyManager.Listener {
         private long nextAvailableTime = 0L;
         private boolean pending;
         /**
-         * Tracks sequential reply progression. This is kept in memory during runtime and
+         * Tracks sequential reply progression per channel. This is kept in memory during runtime and
          * synchronized to {@link AutoReplyManager} so it can be restored across reloads.
          */
-        private int sequentialIndex;
+        private final Map<String, AutoReplyManager.SequentialProgress> sequentialProgressByChannel = new HashMap<>();
 
         private void recordMatch(String user, long timestamp, long requiredMentions, long windowMillis,
                 boolean recipientMention, boolean directMention) {
@@ -655,39 +655,51 @@ public class AutoReplyService implements AutoReplyManager.Listener {
             matches.clear();
         }
 
-        private void setSequentialIndex(int index) {
-            sequentialIndex = Math.max(0, index);
-        }
-
-        private int normalizeSequentialIndex(int totalReplies) {
-            return getCurrentSequentialIndex(totalReplies);
-        }
-
-        private int getCurrentSequentialIndex(int totalReplies) {
-            if (totalReplies <= 0) {
-                sequentialIndex = 0;
-                return 0;
-            }
-            if (sequentialIndex >= totalReplies) {
-                sequentialIndex = totalReplies - 1;
-            }
-            return Math.max(0, sequentialIndex);
-        }
-
-        private void advanceSequentialIndex(int totalReplies, boolean loop) {
-            if (totalReplies <= 0) {
-                sequentialIndex = 0;
+        private void ensureSequentialProgress(String channel, String triggerId, AutoReplyManager manager) {
+            if (StringUtil.isNullOrEmpty(channel)) {
                 return;
             }
-            if (sequentialIndex < totalReplies - 1) {
-                sequentialIndex++;
+            AutoReplyManager.SequentialProgress stored = manager.getSequentialProgress(channel, triggerId);
+            sequentialProgressByChannel.put(channel, stored);
+        }
+
+        private AutoReplyManager.SequentialProgress getSequentialProgress(String channel, List<String> replies) {
+            if (StringUtil.isNullOrEmpty(channel)) {
+                return AutoReplyManager.normalizeSequentialProgress(null, replies);
+            }
+            AutoReplyManager.SequentialProgress progress = sequentialProgressByChannel.get(channel);
+            AutoReplyManager.SequentialProgress normalized = AutoReplyManager.normalizeSequentialProgress(progress, replies);
+            sequentialProgressByChannel.put(channel, normalized);
+            return normalized;
+        }
+
+        private int getCurrentSequentialIndex(String channel, List<String> replies) {
+            AutoReplyManager.SequentialProgress progress = getSequentialProgress(channel, replies);
+            return progress.getIndex();
+        }
+
+        private void advanceSequentialIndex(String channel, List<String> replies, boolean loop) {
+            if (StringUtil.isNullOrEmpty(channel)) {
+                return;
+            }
+            int totalReplies = replies.size();
+            if (totalReplies <= 0) {
+                sequentialProgressByChannel.put(channel, new AutoReplyManager.SequentialProgress(0, null));
+                return;
+            }
+            AutoReplyManager.SequentialProgress progress = getSequentialProgress(channel, replies);
+            int index = progress.getIndex();
+            if (index < totalReplies - 1) {
+                index++;
             }
             else if (loop) {
-                sequentialIndex = 0;
+                index = 0;
             }
             else {
-                sequentialIndex = totalReplies - 1;
+                index = totalReplies - 1;
             }
+            String reply = replies.get(index);
+            sequentialProgressByChannel.put(channel, new AutoReplyManager.SequentialProgress(index, reply));
         }
 
         private void cancelPending() {
@@ -752,4 +764,3 @@ public class AutoReplyService implements AutoReplyManager.Listener {
         }
     }
 }
-

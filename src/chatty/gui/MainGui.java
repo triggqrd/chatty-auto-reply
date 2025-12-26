@@ -5863,6 +5863,14 @@ EventLog.setMain(eventLog);
         });
     }
     
+    public boolean hasLineId(String channel, long lineId) {
+        return channels.hasLineId(channel, lineId);
+    }
+    
+    public void scrollToLineId(String channel, long lineId, String label) {
+        GuiUtil.edt(() -> channels.scrollToLineId(channel, lineId, label));
+    }
+    
     public WindowListener getWindowListener() {
         return windowListener;
     }

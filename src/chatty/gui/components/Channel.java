@@ -688,6 +688,14 @@ public final class Channel extends JPanel {
         return text.getSelectedUser();
     }
     
+    public boolean hasLineId(long lineId) {
+        return text.hasLineId(lineId);
+    }
+    
+    public void scrollToLine(long lineId, String label) {
+        text.scrollToLine(lineId, label);
+    }
+    
     @Override
     public String toString() {
         return String.format("%s '%s'", type, room);

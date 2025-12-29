@@ -28,6 +28,10 @@ public class Shutdown implements Runnable {
         System.out.println("Shutdown");
         
         client.saveSettings(true, false);
+        AutoReplyService autoReplyService = client.getAutoReplyService();
+        if (autoReplyService != null) {
+            autoReplyService.shutdown();
+        }
         client.chatLog.close();
     }
 }

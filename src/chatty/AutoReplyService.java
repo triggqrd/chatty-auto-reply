@@ -23,6 +23,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -60,7 +61,7 @@ public class AutoReplyService implements AutoReplyManager.Listener {
     private final MainGui gui;
     private final AutoReplyManager manager;
 
-    private final Map<String, TriggerState> stateById = new HashMap<>();
+    private final Map<String, TriggerState> stateById = new ConcurrentHashMap<>();
     private List<PreparedTrigger> triggers = Collections.emptyList();
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(new TriggerThreadFactory());
 
@@ -101,6 +102,9 @@ public class AutoReplyService implements AutoReplyManager.Listener {
     }
 
     public void handleMessage(User user, String text, boolean action, MsgTags tags) {
+        if (user == null || text == null) {
+            return;
+        }
         PreparedTrigger[] activeTriggers;
         boolean ignoreSelf;
         long globalAvailable;
@@ -171,10 +175,11 @@ public class AutoReplyService implements AutoReplyManager.Listener {
         long delay = trigger.nextDelayMillis();
         long scheduledTime = now + delay;
         state.reset();
-        state.markPending(scheduledTime, trigger.cooldownMillis);
         long globalCooldown = Math.max(globalCooldownMillis, 0L);
         synchronized (lock) {
-            nextGlobalAvailable = Math.max(nextGlobalAvailable, scheduledTime + globalCooldown);
+            long reservation = scheduledTime + globalCooldown;
+            state.markPending(scheduledTime, trigger.cooldownMillis, reservation, nextGlobalAvailable);
+            nextGlobalAvailable = Math.max(nextGlobalAvailable, reservation);
         }
         scheduler.schedule(() -> dispatchAutoReply(trigger, state, channel, reply, user, now, scheduledTime), delay, TimeUnit.MILLISECONDS);
     }
@@ -190,6 +195,7 @@ public class AutoReplyService implements AutoReplyManager.Listener {
             handlePostSend(trigger, state, scheduledTime, channel, reply, user, matchedAtMillis, sentAtMillis);
         }
         else {
+            rollbackGlobalCooldown(state);
             state.cancelPending();
             LOGGER.log(Level.FINE, "Failed to send auto reply for trigger {0}", trigger.id);
         }
@@ -348,6 +354,7 @@ public class AutoReplyService implements AutoReplyManager.Listener {
     }
 
     private MatchContext createContext(String text, MsgTags tags) {
+        String safeText = text == null ? "" : text;
         String ownUsername = client.getUsername();
         boolean recipientMention = false;
         boolean directMention = false;
@@ -358,13 +365,27 @@ public class AutoReplyService implements AutoReplyManager.Listener {
                     recipientMention = true;
                 }
             }
-            String lowerText = text.toLowerCase(Locale.ENGLISH);
+            String lowerText = safeText.toLowerCase(Locale.ENGLISH);
             String usernameLower = ownUsername.toLowerCase(Locale.ENGLISH);
             if (lowerText.contains("@" + usernameLower)) {
                 directMention = true;
             }
         }
-        return new MatchContext(text, recipientMention, directMention);
+        return new MatchContext(safeText, recipientMention, directMention);
+    }
+
+    private void rollbackGlobalCooldown(TriggerState state) {
+        synchronized (lock) {
+            Long reservation = state.getPendingGlobalReservation();
+            Long previous = state.getPendingGlobalPrevious();
+            if (reservation != null && previous != null && nextGlobalAvailable == reservation) {
+                nextGlobalAvailable = previous;
+            }
+        }
+    }
+
+    public void shutdown() {
+        scheduler.shutdownNow();
     }
 
     private static final class PreparedTrigger {
@@ -603,6 +624,8 @@ public class AutoReplyService implements AutoReplyManager.Listener {
         private final Map<String, Deque<MatchEntry>> matches = new HashMap<>();
         private long nextAvailableTime = 0L;
         private boolean pending;
+        private Long pendingGlobalReservation;
+        private Long pendingGlobalPrevious;
         /**
          * Tracks sequential reply progression per channel. This is kept in memory during runtime and
          * synchronized to {@link AutoReplyManager} so it can be restored across reloads.
@@ -640,15 +663,19 @@ public class AutoReplyService implements AutoReplyManager.Listener {
             return !pending && now >= nextAvailableTime;
         }
 
-        private void markPending(long scheduledTime, long cooldownMillis) {
+        private void markPending(long scheduledTime, long cooldownMillis, long globalReservation, long previousGlobal) {
             pending = true;
             long next = cooldownMillis > 0 ? scheduledTime + cooldownMillis : scheduledTime;
             nextAvailableTime = Math.max(nextAvailableTime, next);
+            pendingGlobalReservation = globalReservation;
+            pendingGlobalPrevious = previousGlobal;
         }
 
         private void markCooldown(long timestamp) {
             nextAvailableTime = Math.max(nextAvailableTime, timestamp);
             pending = false;
+            pendingGlobalReservation = null;
+            pendingGlobalPrevious = null;
         }
 
         private void reset() {
@@ -704,6 +731,16 @@ public class AutoReplyService implements AutoReplyManager.Listener {
 
         private void cancelPending() {
             pending = false;
+            pendingGlobalReservation = null;
+            pendingGlobalPrevious = null;
+        }
+
+        private Long getPendingGlobalReservation() {
+            return pendingGlobalReservation;
+        }
+
+        private Long getPendingGlobalPrevious() {
+            return pendingGlobalPrevious;
         }
 
         private void pruneAll(long now, long requiredMentions, long windowMillis) {

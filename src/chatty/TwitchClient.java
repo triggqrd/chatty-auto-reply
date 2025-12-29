@@ -3395,6 +3395,9 @@ public class TwitchClient {
         TextToSpeech.shutdownIfNecessary();
         logAllViewerstats();
         Pronouns.instance().saveCache();
+        if (autoReplyService != null) {
+            autoReplyService.shutdown();
+        }
         c.disconnect();
         frankerFaceZ.disconnectWs();
         eventSub.disconnect();
